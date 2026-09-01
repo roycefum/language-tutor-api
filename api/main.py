@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch
@@ -27,6 +28,16 @@ from data.db import (
 
 
 app = FastAPI()
+
+# Permissive pre-launch: no real users yet, and the Expo app has no fixed
+# origin during development (simulator, physical device, Expo Go all differ).
+# Tighten to specific origins before this is client-facing.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ============================================================
