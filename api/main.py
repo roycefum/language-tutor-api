@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch
+from core.extraction import extract_vocab_from_image
 from core.exceptions import GeminiAPIError, AuthError
 from api.schemas import (
     GenerateQuestionsRequest,
@@ -15,11 +16,22 @@ from api.schemas import (
 from core.helpers import save_list_if_valid
 from auth.supabase_auth import sign_up, sign_in, sign_out
 from api.deps import get_current_user_id, bearer_scheme
-from data.db import create_quiz_session, update_quiz_session, get_active_sessions
+from data.db import (
+    create_quiz_session,
+    update_quiz_session,
+    get_active_sessions,
+    get_user_lists,
+    get_list_with_pairs,
+    delete_list_and_pairs,
+)
 
 
 app = FastAPI()
 
+
+# ============================================================
+# EXCEPTION HANDLERS
+# ============================================================
 
 @app.exception_handler(GeminiAPIError)
 def handle_gemini_api_error(request: Request, exc: GeminiAPIError):
@@ -37,34 +49,18 @@ def handle_auth_error(request: Request, exc: AuthError):
     )
 
 
+# ============================================================
+# HEALTH CHECK
+# ============================================================
+
 @app.get("/")
 def read_root():
     return {"status": "API is running"}
 
 
-@app.post("/generate-questions")
-def route_generate_question_batch(request: GenerateQuestionsRequest):
-    result = generate_question_batch(
-        request.pairs,
-        request.source_language,
-        request.target_language,
-        request.batch_size
-    )
-    return result
-
-
-@app.post("/save-list")
-def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get_current_user_id)):
-    list_id = save_list_if_valid(
-        current_user_id,
-        request.name,
-        request.source,
-        request.source_language,
-        request.target_language,
-        request.pairs
-    )
-    return {"list_id": list_id}
-
+# ============================================================
+# AUTH
+# ============================================================
 
 @app.post("/signup")
 def route_signup(request: SignUpRequest):
@@ -92,6 +88,73 @@ def route_logout(request: LogoutRequest, credentials: HTTPAuthorizationCredentia
     sign_out(credentials.credentials, request.refresh_token)
     return {"status": "logged out"}
 
+
+# ============================================================
+# VOCAB LISTS
+# ============================================================
+
+@app.post("/save-list")
+def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get_current_user_id)):
+    list_id = save_list_if_valid(
+        current_user_id,
+        request.name,
+        request.source,
+        request.source_language,
+        request.target_language,
+        request.pairs
+    )
+    return {"list_id": list_id}
+
+
+@app.get("/lists")
+def route_get_user_lists(current_user_id: str = Depends(get_current_user_id)):
+    lists = get_user_lists(current_user_id)
+    return {"lists": lists}
+
+
+@app.get("/lists/{list_id}")
+def route_get_list(list_id: str, current_user_id: str = Depends(get_current_user_id)):
+    list_data = get_list_with_pairs(list_id, current_user_id)
+    if list_data is None:
+        raise HTTPException(status_code=404, detail="List not found")
+    return list_data
+
+
+@app.delete("/lists/{list_id}")
+def route_delete_list(list_id: str, current_user_id: str = Depends(get_current_user_id)):
+    deleted = delete_list_and_pairs(list_id, current_user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="List not found")
+    return {"status": "deleted"}
+
+
+@app.post("/extract-vocab-from-image")
+async def route_extract_vocab_from_image(file: UploadFile = File(...)):
+    # No auth dependency here: anonymous users can build lists (including
+    # via photo extraction) without persistence, same as /generate-questions.
+    image_bytes = await file.read()
+    pairs = extract_vocab_from_image(image_bytes, file.content_type)
+    return {"pairs": [p.model_dump() for p in pairs]}
+
+
+# ============================================================
+# QUESTION GENERATION
+# ============================================================
+
+@app.post("/generate-questions")
+def route_generate_question_batch(request: GenerateQuestionsRequest):
+    result = generate_question_batch(
+        request.pairs,
+        request.source_language,
+        request.target_language,
+        request.batch_size
+    )
+    return result
+
+
+# ============================================================
+# QUIZ SESSIONS — persisted, resumable quiz progress
+# ============================================================
 
 @app.post("/quiz-sessions")
 def route_create_quiz_session(request: CreateQuizSessionRequest, current_user_id: str = Depends(get_current_user_id)):

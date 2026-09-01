@@ -65,14 +65,61 @@ def update_list(list_id, name, source, source_language, target_language):
     }).eq("id", list_id).execute()
 
 
-def delete_list(list_id):
+def delete_list(list_id, user_id):
     """
-    Delete a vocab_lists row entirely. Note: this does NOT automatically
-    delete the list's vocab_pairs — call delete_vocab_pairs_for_list()
-    separately, or rely on a cascade-delete foreign key constraint if one
-    is set up on vocab_pairs.list_id.
+    Delete a vocab_lists row entirely, scoped to user_id so one user can't
+    delete another user's list by guessing its id. Note: this does NOT
+    automatically delete the list's vocab_pairs — call
+    delete_vocab_pairs_for_list() separately (see delete_list_and_pairs()
+    for the full orchestration), or rely on a cascade-delete foreign key
+    constraint if one is set up on vocab_pairs.list_id.
     """
-    supabase.table("vocab_lists").delete().eq("id", list_id).execute()
+    supabase.table("vocab_lists").delete().eq("id", list_id).eq("user_id", user_id).execute()
+
+
+def get_user_lists(user_id):
+    """
+    Fetch every vocab list belonging to a user (metadata only, no pairs) —
+    powers a "my lists" screen. Returns a list of rows, possibly empty.
+    """
+    result = supabase.table("vocab_lists").select("*").eq("user_id", user_id).execute()
+    return result.data
+
+
+def get_list_with_pairs(list_id, user_id):
+    """
+    Fetch a single vocab list's metadata plus its vocab pairs, scoped to
+    user_id — e.g. to hand a saved list off to question generation.
+    vocab_pairs has no user_id column of its own, so ownership can only be
+    checked via the parent list; this looks the list up by id AND user_id
+    first, and only fetches its pairs if that succeeds.
+    Returns None if no such list exists for this user.
+    """
+    list_result = supabase.table("vocab_lists").select("*").eq("id", list_id).eq("user_id", user_id).execute()
+    if len(list_result.data) == 0:
+        return None
+    list_row = list_result.data[0]
+
+    pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
+    list_row["pairs"] = pairs_result.data
+    return list_row
+
+
+def delete_list_and_pairs(list_id, user_id):
+    """
+    The single entry point for fully deleting a vocab list: verifies the
+    list belongs to user_id first (same ownership constraint as
+    get_list_with_pairs — vocab_pairs can only be scoped via its parent
+    list), then removes its vocab_pairs, then the vocab_lists row itself.
+    Returns True if deleted, False if no matching list was found for this user.
+    """
+    result = supabase.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
+    if len(result.data) == 0:
+        return False
+
+    delete_vocab_pairs_for_list(list_id)
+    delete_list(list_id, user_id)
+    return True
 
 
 # ============================================================
