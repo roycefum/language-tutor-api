@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch
@@ -13,7 +13,7 @@ from api.schemas import (
     CreateQuizSessionRequest,
     UpdateQuizSessionRequest,
 )
-from core.helpers import save_list_if_valid
+from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out
 from api.deps import get_current_user_id, bearer_scheme
 from data.db import (
@@ -135,6 +135,25 @@ async def route_extract_vocab_from_image(file: UploadFile = File(...)):
     image_bytes = await file.read()
     pairs = extract_vocab_from_image(image_bytes, file.content_type)
     return {"pairs": [p.model_dump() for p in pairs]}
+
+
+@app.post("/parse-vocab-text")
+async def route_parse_vocab_text(raw_text: str = Form(None), file: UploadFile = File(None)):
+    # Covers both "paste text" and "upload file" input methods, since both
+    # end up as plain text fed to the same parser. Same anonymous-use
+    # precedent as /generate-questions and /extract-vocab-from-image.
+    if file is not None:
+        try:
+            text = (await file.read()).decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="File must be plain text")
+    elif raw_text is not None:
+        text = raw_text
+    else:
+        raise HTTPException(status_code=400, detail="Provide either raw_text or file")
+
+    pairs = parse_pasted_list(text)
+    return {"pairs": pairs}
 
 
 # ============================================================
