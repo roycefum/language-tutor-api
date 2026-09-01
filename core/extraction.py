@@ -2,6 +2,7 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 from data.models import VocabPair, ExtractedVocabList
+from core.exceptions import GeminiAPIError
 
 
 load_dotenv()
@@ -19,10 +20,8 @@ def describe_image(image_bytes,mime_type):
             contents=["Describe what's in this image.", image_part]
         )
     except Exception as e:
-        print("Oops, something went wrong on our end, please try again:",e)
-        exit()        
-        
-        
+        raise GeminiAPIError(f"describe_image failed: {e}") from e
+
     return response.text
 
 
@@ -47,8 +46,7 @@ def extract_vocab_from_image(image_bytes, mime_type):
                         )
         )
     except Exception as e:
-        print("Oops, something went wrong on our end, please try again:",e)
-        exit()       
+        raise GeminiAPIError(f"extract_vocab_from_image failed: {e}") from e
 
     return response.parsed.pairs
 

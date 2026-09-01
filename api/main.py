@@ -1,9 +1,41 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch
-from api.schemas import GenerateQuestionsRequest
+from core.exceptions import GeminiAPIError, AuthError
+from api.schemas import (
+    GenerateQuestionsRequest,
+    SaveListRequest,
+    SignUpRequest,
+    LoginRequest,
+    LogoutRequest,
+    CreateQuizSessionRequest,
+    UpdateQuizSessionRequest,
+)
+from core.helpers import save_list_if_valid
+from auth.supabase_auth import sign_up, sign_in, sign_out
+from api.deps import get_current_user_id, bearer_scheme
+from data.db import create_quiz_session, update_quiz_session, get_active_sessions
 
 
 app = FastAPI()
+
+
+@app.exception_handler(GeminiAPIError)
+def handle_gemini_api_error(request: Request, exc: GeminiAPIError):
+    return JSONResponse(
+        status_code=502,
+        content={"detail": f"Gemini API request failed: {exc}"},
+    )
+
+
+@app.exception_handler(AuthError)
+def handle_auth_error(request: Request, exc: AuthError):
+    return JSONResponse(
+        status_code=401,
+        content={"detail": str(exc)},
+    )
+
 
 @app.get("/")
 def read_root():
@@ -19,3 +51,61 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.batch_size
     )
     return result
+
+
+@app.post("/save-list")
+def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get_current_user_id)):
+    list_id = save_list_if_valid(
+        current_user_id,
+        request.name,
+        request.source,
+        request.source_language,
+        request.target_language,
+        request.pairs
+    )
+    return {"list_id": list_id}
+
+
+@app.post("/signup")
+def route_signup(request: SignUpRequest):
+    response = sign_up(request.email, request.password)
+    return {
+        "user_id": response.user.id if response.user else None,
+        "email": response.user.email if response.user else None,
+        # Supabase requires email confirmation by default before a session is issued.
+        "confirmation_required": response.session is None,
+    }
+
+
+@app.post("/login")
+def route_login(request: LoginRequest):
+    response = sign_in(request.email, request.password)
+    return {
+        "access_token": response.session.access_token,
+        "refresh_token": response.session.refresh_token,
+        "user_id": response.user.id,
+    }
+
+
+@app.post("/logout")
+def route_logout(request: LogoutRequest, credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
+    sign_out(credentials.credentials, request.refresh_token)
+    return {"status": "logged out"}
+
+
+@app.post("/quiz-sessions")
+def route_create_quiz_session(request: CreateQuizSessionRequest, current_user_id: str = Depends(get_current_user_id)):
+    session_id = create_quiz_session(current_user_id, request.list_id, request.questions)
+    return {"session_id": session_id}
+
+
+@app.patch("/quiz-sessions/{session_id}")
+def route_update_quiz_session(session_id: str, request: UpdateQuizSessionRequest, current_user_id: str = Depends(get_current_user_id)):
+    update_quiz_session(session_id, current_user_id, request.current_index)
+    return {"status": "updated"}
+
+
+@app.get("/quiz-sessions")
+def route_get_active_sessions(current_user_id: str = Depends(get_current_user_id)):
+    sessions = get_active_sessions(current_user_id)
+    return {"sessions": sessions or []}

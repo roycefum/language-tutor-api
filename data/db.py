@@ -150,15 +150,17 @@ def create_quiz_session(user_id, list_id, questions):
     return response.data[0]["id"]
 
 
-def update_quiz_session(session_id, current_index):
+def update_quiz_session(session_id, user_id, current_index):
     """
     Update an in-progress session's position after each answered question.
-    last_active_at updates automatically via a moddatetime trigger on this
-    table, so it doesn't need to be set explicitly here.
+    Scoped to user_id as well as session_id so one user can't update another
+    user's session by guessing/knowing its id. last_active_at updates
+    automatically via a moddatetime trigger on this table, so it doesn't
+    need to be set explicitly here.
     """
     supabase.table("quiz_sessions").update({
         "current_index": current_index
-    }).eq("id", session_id).execute()
+    }).eq("id", session_id).eq("user_id", user_id).execute()
 
 
 def get_active_sessions(user_id):

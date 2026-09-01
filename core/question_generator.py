@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List
 from data.models import Question,QuestionBatch
+from core.exceptions import GeminiAPIError
 
 load_dotenv()
 client = genai.Client()
@@ -54,8 +55,7 @@ def question_generator (source_term: str, target_term: str, source_language: str
     )
 
     except Exception as e:
-        print("Oops, something went wrong on our end, please try again:",e)
-        exit()        
+        raise GeminiAPIError(f"question_generator failed: {e}") from e
 
 
     return response.parsed
@@ -117,8 +117,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     )
 
     except Exception as e:
-        print("Oops, something went wrong on our end, please try again:",e)
-        exit()        
+        raise GeminiAPIError(f"generate_question_batch failed: {e}") from e
 
 
     return response.parsed.questions
