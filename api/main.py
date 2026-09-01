@@ -163,8 +163,8 @@ async def route_parse_vocab_text(raw_text: str = Form(None), file: UploadFile = 
     else:
         raise HTTPException(status_code=400, detail="Provide either raw_text or file")
 
-    pairs = parse_pasted_list(text)
-    return {"pairs": pairs}
+    pairs, skipped_lines = parse_pasted_list(text)
+    return {"pairs": pairs, "skipped_lines": skipped_lines}
 
 
 # ============================================================
