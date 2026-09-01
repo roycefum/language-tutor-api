@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List
 from data.models import Question,QuestionBatch
 from core.exceptions import GeminiAPIError
+from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
 
 load_dotenv()
 client = genai.Client()
@@ -61,7 +62,9 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return response.parsed
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL) -> QuestionBatch:
+
+    cefr_guidance = get_cefr_guidance(level)
 
     prompt = f""" {pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
                 {source_language}. This is the language that the user already knows. The target term (the second term) is in the {target_language}. This is the
@@ -69,8 +72,11 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 Write a batch of {batch_size} questions. One question per pair, in the same order Each question should be formed with the following guidelines:
                 Write a fill in the blanks language quiz type question using a translation of source_term from {source_language}.
                 This question is meant to test how well the user knows the target_term. The sentence must include a specific descriptive detail or defining clue about each pair's target term
-                so that it is the only word that could logically complete the sentence — not a generic statement 
+                so that it is the only word that could logically complete the sentence — not a generic statement
                 that many different words could equally complete.
+
+                {cefr_guidance}
+                This complexity guidance applies to the sentence surrounding the blank, not to the target_term itself — the target_term is fixed by the pair and must not be simplified or substituted.
 
                 "CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing — 

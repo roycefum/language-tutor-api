@@ -177,7 +177,8 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.pairs,
         request.source_language,
         request.target_language,
-        request.batch_size
+        request.batch_size,
+        request.level
     )
     return result
 
