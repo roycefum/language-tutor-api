@@ -1,3 +1,4 @@
+import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -9,6 +10,24 @@ from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
 
 load_dotenv()
 client = genai.Client()
+
+# Gemini's structured JSON output occasionally corrupts an accented
+# character into a literal "#XXXX" sequence instead of the real character
+# (e.g. "después" -> "Despu#00e9s", "jardín" -> "jard#00edn") — looks like a
+# malformed unicode escape the model emits at a low rate. "#" followed by
+# exactly 4 hex digits doesn't occur in real question text otherwise, so
+# repairing it back to the intended character is safe.
+_MOJIBAKE_ESCAPE_RE = re.compile(r"#([0-9a-fA-F]{4})")
+
+
+def _repair_mojibake_escapes(text):
+    return _MOJIBAKE_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), text)
+
+
+def _repair_question(question):
+    question.question_text = _repair_mojibake_escapes(question.question_text)
+    question.correct_answer = _repair_mojibake_escapes(question.correct_answer)
+    return question
 
 def question_generator (source_term: str, target_term: str, source_language: str, target_language:str) -> Question:
 
@@ -59,7 +78,7 @@ def question_generator (source_term: str, target_term: str, source_language: str
         raise GeminiAPIError(f"question_generator failed: {e}") from e
 
 
-    return response.parsed
+    return _repair_question(response.parsed)
 
 
 def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL) -> QuestionBatch:
@@ -126,7 +145,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
         raise GeminiAPIError(f"generate_question_batch failed: {e}") from e
 
 
-    return response.parsed.questions
+    return [_repair_question(q) for q in response.parsed.questions]
 
 
    
