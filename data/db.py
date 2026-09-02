@@ -223,3 +223,22 @@ def get_active_sessions(user_id):
         return result.data
     else:
         return None
+
+
+# ============================================================
+# ACCOUNT DELETION
+# ============================================================
+
+def delete_all_user_data(user_id):
+    """
+    Deletes every vocab_lists/vocab_pairs/quiz_sessions row belonging to a
+    user. Used when deleting an account — this must run BEFORE the auth
+    user itself is deleted (see auth.supabase_auth.delete_own_account),
+    since once the auth user is gone there's no user_id left to scope a
+    cleanup query to.
+    """
+    lists = supabase.table("vocab_lists").select("id").eq("user_id", user_id).execute()
+    for row in lists.data:
+        delete_vocab_pairs_for_list(row["id"])
+    supabase.table("vocab_lists").delete().eq("user_id", user_id).execute()
+    supabase.table("quiz_sessions").delete().eq("user_id", user_id).execute()

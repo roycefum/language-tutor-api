@@ -15,7 +15,7 @@ from api.schemas import (
     UpdateQuizSessionRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
-from auth.supabase_auth import sign_up, sign_in, sign_out
+from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
 from api.deps import get_current_user_id, bearer_scheme
 from data.db import (
     create_quiz_session,
@@ -24,6 +24,7 @@ from data.db import (
     get_user_lists,
     get_list_with_pairs,
     delete_list_and_pairs,
+    delete_all_user_data,
 )
 
 
@@ -99,6 +100,18 @@ def route_login(request: LoginRequest):
 def route_logout(request: LogoutRequest, credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
     sign_out(credentials.credentials, request.refresh_token)
     return {"status": "logged out"}
+
+
+@app.delete("/account")
+def route_delete_account(
+    current_user_id: str = Depends(get_current_user_id),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+):
+    # App data must go first — once the auth user is deleted there's no
+    # user_id left to scope the cleanup query to.
+    delete_all_user_data(current_user_id)
+    delete_own_account(credentials.credentials)
+    return {"status": "deleted"}
 
 
 # ============================================================

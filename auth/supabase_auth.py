@@ -55,3 +55,25 @@ def sign_out(access_token, refresh_token):
         session_client.auth.sign_out()
     except Exception as e:
         raise AuthError(f"Sign out failed: {e}") from e
+
+
+def delete_own_account(access_token):
+    """
+    Calls the delete_own_account() Postgres RPC — a SECURITY DEFINER
+    function (created directly in Supabase's SQL editor, not by this app)
+    that deletes exactly the caller's own auth.users row, scoped by
+    auth.uid() from their token. The anon key alone can't delete auth
+    users at all; this RPC is what grants a user permission to delete only
+    themselves without handing the backend a full service-role key.
+
+    Uses a fresh client authenticated as the caller (via postgrest.auth(),
+    which only needs the access token, unlike sign_out()'s set_session())
+    rather than the shared module-level client, for the same concurrency
+    reason as sign_out().
+    """
+    try:
+        session_client = create_client(url, key)
+        session_client.postgrest.auth(access_token)
+        session_client.rpc("delete_own_account").execute()
+    except Exception as e:
+        raise AuthError(f"Account deletion failed: {e}") from e
