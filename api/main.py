@@ -91,6 +91,7 @@ def route_login(request: LoginRequest):
         "access_token": response.session.access_token,
         "refresh_token": response.session.refresh_token,
         "user_id": response.user.id,
+        "email": response.user.email,
     }
 
 
