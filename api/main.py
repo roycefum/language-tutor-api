@@ -13,6 +13,7 @@ from api.schemas import (
     LogoutRequest,
     CreateQuizSessionRequest,
     UpdateQuizSessionRequest,
+    CreateAttemptRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
@@ -25,6 +26,8 @@ from data.db import (
     get_list_with_pairs,
     delete_list_and_pairs,
     delete_all_user_data,
+    create_quiz_attempt,
+    select_quiz_pairs_for_list,
 )
 
 
@@ -153,6 +156,17 @@ def route_delete_list(list_id: str, current_user_id: str = Depends(get_current_u
     return {"status": "deleted"}
 
 
+@app.get("/lists/{list_id}/quiz-pairs")
+def route_select_quiz_pairs(list_id: str, count: int, current_user_id: str = Depends(get_current_user_id)):
+    # Weighted toward previously-wrong pairs for this user — see
+    # select_quiz_pairs_for_list()'s docstring for the weighting formula.
+    # This is what makes requizzing the same list "get smarter" over time.
+    pairs = select_quiz_pairs_for_list(list_id, current_user_id, count)
+    if pairs is None:
+        raise HTTPException(status_code=404, detail="List not found")
+    return {"pairs": pairs}
+
+
 @app.post("/extract-vocab-from-image")
 async def route_extract_vocab_from_image(file: UploadFile = File(...)):
     # No auth dependency here: anonymous users can build lists (including
@@ -217,3 +231,16 @@ def route_update_quiz_session(session_id: str, request: UpdateQuizSessionRequest
 def route_get_active_sessions(current_user_id: str = Depends(get_current_user_id)):
     sessions = get_active_sessions(current_user_id)
     return {"sessions": sessions or []}
+
+
+@app.post("/quiz-attempts")
+def route_create_attempt(request: CreateAttemptRequest, current_user_id: str = Depends(get_current_user_id)):
+    create_quiz_attempt(
+        current_user_id,
+        request.session_id,
+        request.vocab_pair_id,
+        request.question_text,
+        request.skill_category,
+        request.was_correct,
+    )
+    return {"status": "recorded"}

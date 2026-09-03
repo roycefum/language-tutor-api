@@ -85,7 +85,12 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 
     cefr_guidance = get_cefr_guidance(level)
 
-    prompt = f""" {pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
+    # Pairs may carry an "id" (from a saved list, used below to stamp each
+    # returned Question with its source vocab_pair_id) that has nothing to
+    # do with the question content — strip it before it goes in the prompt.
+    prompt_pairs = [{"source word": p["source word"], "target word": p["target word"]} for p in pairs]
+
+    prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
                 {source_language}. This is the language that the user already knows. The target term (the second term) is in the {target_language}. This is the
                 language that the user is learning.
                 Write a batch of {batch_size} questions. One question per pair, in the same order Each question should be formed with the following guidelines:
@@ -145,7 +150,13 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
         raise GeminiAPIError(f"generate_question_batch failed: {e}") from e
 
 
-    return [_repair_question(q) for q in response.parsed.questions]
+    questions = [_repair_question(q) for q in response.parsed.questions]
+    # The prompt guarantees "one question per pair, in the same order" —
+    # zip by position rather than asking Gemini to echo an id back, which
+    # would be both unreliable and unnecessary.
+    for question, pair in zip(questions, pairs):
+        question.vocab_pair_id = pair.get("id")
+    return questions
 
 
    

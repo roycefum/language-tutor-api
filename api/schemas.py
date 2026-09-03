@@ -45,3 +45,11 @@ class CreateQuizSessionRequest(BaseModel):
 class UpdateQuizSessionRequest(BaseModel):
     current_index: int
 
+
+class CreateAttemptRequest(BaseModel):
+    session_id: str
+    vocab_pair_id: str | None
+    question_text: str
+    skill_category: str | None
+    was_correct: bool
+
