@@ -8,21 +8,40 @@ load_dotenv()
 url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_KEY")
 
-supabase: Client = create_client(url, key)
+
+def get_authed_client(access_token) -> Client:
+    """
+    Builds a fresh Supabase client authenticated as the calling user (via
+    postgrest.auth(), same pattern already used in auth/supabase_auth.py's
+    sign_out()/delete_own_account()). Every function below takes a client
+    built this way rather than reaching for a shared module-level client,
+    so its queries carry the caller's own JWT — required for Postgres Row
+    Level Security policies (which key off auth.uid()) to recognize who's
+    asking. A shared anon-key client would make auth.uid() resolve to null
+    for every query, and RLS would deny everything.
+
+    Each FastAPI request builds its own client via this function (see
+    api/deps.py's get_db_client dependency) rather than reusing one across
+    requests, since a client's auth state isn't meant to be shared/mutated
+    concurrently by different users' requests.
+    """
+    client = create_client(url, key)
+    client.postgrest.auth(access_token)
+    return client
 
 
 # ============================================================
 # VOCAB LISTS — read
 # ============================================================
 
-def find_list_by_name(user_id, name):
+def find_list_by_name(client, user_id, name):
     """
     Look up a single vocab list belonging to this user, by exact name match.
     Used by save_list() to decide whether to create a new list or update
     an existing one with the same name.
     Returns the matching row (dict) if found, or None if no match.
     """
-    result = supabase.table("vocab_lists").select("*").eq("user_id", user_id).eq("name", name).execute()
+    result = client.table("vocab_lists").select("*").eq("user_id", user_id).eq("name", name).execute()
     if len(result.data) > 0:
         return result.data[0]
     else:
@@ -33,7 +52,7 @@ def find_list_by_name(user_id, name):
 # VOCAB LISTS — create / update / delete
 # ============================================================
 
-def create_list(user_id, name, source, source_language, target_language, list_type="vocab"):
+def create_list(client, user_id, name, source, source_language, target_language, list_type="vocab"):
     """
     Insert a brand-new vocab_lists row. Does NOT insert the actual vocab
     pairs — that's a separate step (see insert_vocab_pairs). id, created_at,
@@ -41,7 +60,7 @@ def create_list(user_id, name, source, source_language, target_language, list_ty
     not passed in here.
     Returns the newly created row (dict), including its generated id.
     """
-    response = supabase.table("vocab_lists").insert({
+    response = client.table("vocab_lists").insert({
         "user_id": user_id,
         "name": name,
         "source": source,
@@ -53,13 +72,13 @@ def create_list(user_id, name, source, source_language, target_language, list_ty
     return response.data[0]
 
 
-def update_list(list_id, name, source, source_language, target_language, list_type="vocab"):
+def update_list(client, list_id, name, source, source_language, target_language, list_type="vocab"):
     """
     Update an existing vocab_lists row's metadata (name, source, languages,
     list_type). last_modified updates automatically via the moddatetime
     trigger — no need to set it here.
     """
-    supabase.table("vocab_lists").update({
+    client.table("vocab_lists").update({
         "name": name,
         "source": source,
         "source_language": source_language,
@@ -68,7 +87,7 @@ def update_list(list_id, name, source, source_language, target_language, list_ty
     }).eq("id", list_id).execute()
 
 
-def delete_list(list_id, user_id):
+def delete_list(client, list_id, user_id):
     """
     Delete a vocab_lists row entirely, scoped to user_id so one user can't
     delete another user's list by guessing its id. Note: this does NOT
@@ -77,19 +96,19 @@ def delete_list(list_id, user_id):
     for the full orchestration), or rely on a cascade-delete foreign key
     constraint if one is set up on vocab_pairs.list_id.
     """
-    supabase.table("vocab_lists").delete().eq("id", list_id).eq("user_id", user_id).execute()
+    client.table("vocab_lists").delete().eq("id", list_id).eq("user_id", user_id).execute()
 
 
-def get_user_lists(user_id):
+def get_user_lists(client, user_id):
     """
     Fetch every vocab list belonging to a user (metadata only, no pairs) —
     powers a "my lists" screen. Returns a list of rows, possibly empty.
     """
-    result = supabase.table("vocab_lists").select("*").eq("user_id", user_id).execute()
+    result = client.table("vocab_lists").select("*").eq("user_id", user_id).execute()
     return result.data
 
 
-def get_list_with_pairs(list_id, user_id):
+def get_list_with_pairs(client, list_id, user_id):
     """
     Fetch a single vocab list's metadata plus its vocab pairs, scoped to
     user_id — e.g. to hand a saved list off to question generation.
@@ -98,17 +117,17 @@ def get_list_with_pairs(list_id, user_id):
     first, and only fetches its pairs if that succeeds.
     Returns None if no such list exists for this user.
     """
-    list_result = supabase.table("vocab_lists").select("*").eq("id", list_id).eq("user_id", user_id).execute()
+    list_result = client.table("vocab_lists").select("*").eq("id", list_id).eq("user_id", user_id).execute()
     if len(list_result.data) == 0:
         return None
     list_row = list_result.data[0]
 
-    pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
+    pairs_result = client.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
     list_row["pairs"] = pairs_result.data
     return list_row
 
 
-def delete_list_and_pairs(list_id, user_id):
+def delete_list_and_pairs(client, list_id, user_id):
     """
     The single entry point for fully deleting a vocab list: verifies the
     list belongs to user_id first (same ownership constraint as
@@ -116,12 +135,12 @@ def delete_list_and_pairs(list_id, user_id):
     list), then removes its vocab_pairs, then the vocab_lists row itself.
     Returns True if deleted, False if no matching list was found for this user.
     """
-    result = supabase.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
+    result = client.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
     if len(result.data) == 0:
         return False
 
-    delete_vocab_pairs_for_list(list_id)
-    delete_list(list_id, user_id)
+    delete_vocab_pairs_for_list(client, list_id)
+    delete_list(client, list_id, user_id)
     return True
 
 
@@ -129,7 +148,7 @@ def delete_list_and_pairs(list_id, user_id):
 # VOCAB PAIRS
 # ============================================================
 
-def insert_vocab_pairs(list_id, pairs):
+def insert_vocab_pairs(client, list_id, pairs):
     """
     Bulk-insert a list of vocab pairs for a given list, in a single call.
     Converts from the app's internal shape ({"source word": ..., "target word": ...})
@@ -139,23 +158,23 @@ def insert_vocab_pairs(list_id, pairs):
         {"list_id": list_id, "source_term": p["source word"], "target_term": p["target word"]}
         for p in pairs
     ]
-    supabase.table("vocab_pairs").insert(pairs_to_insert).execute()
+    client.table("vocab_pairs").insert(pairs_to_insert).execute()
 
 
-def delete_vocab_pairs_for_list(list_id):
+def delete_vocab_pairs_for_list(client, list_id):
     """
     Remove all vocab_pairs belonging to a given list. Used by save_list()
     before re-inserting the current full set, when updating an existing list
     (simpler than diffing individual added/removed pairs).
     """
-    supabase.table("vocab_pairs").delete().eq("list_id", list_id).execute()
+    client.table("vocab_pairs").delete().eq("list_id", list_id).execute()
 
 
 # ============================================================
 # ORCHESTRATION — create-or-update a full list in one call
 # ============================================================
 
-def save_list(user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
+def save_list(client, user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
     """
     The single entry point for saving a vocab list. Checks whether a list
     with this name already exists for this user:
@@ -164,17 +183,17 @@ def save_list(user_id, name, source, source_language, target_language, pairs, li
     This is what UI code should call directly, rather than the individual
     create/update/insert functions above.
     """
-    existing = find_list_by_name(user_id, name)
+    existing = find_list_by_name(client, user_id, name)
 
     if existing is not None:
         list_id = existing["id"]
-        update_list(list_id, name, source, source_language, target_language, list_type)
-        delete_vocab_pairs_for_list(list_id)
+        update_list(client, list_id, name, source, source_language, target_language, list_type)
+        delete_vocab_pairs_for_list(client, list_id)
     else:
-        result = create_list(user_id, name, source, source_language, target_language, list_type)
+        result = create_list(client, user_id, name, source, source_language, target_language, list_type)
         list_id = result["id"]
 
-    insert_vocab_pairs(list_id, pairs)
+    insert_vocab_pairs(client, list_id, pairs)
 
     return list_id
 
@@ -183,7 +202,7 @@ def save_list(user_id, name, source, source_language, target_language, pairs, li
 # QUIZ SESSIONS — persisted, resumable quiz progress
 # ============================================================
 
-def create_quiz_session(user_id, list_id, questions):
+def create_quiz_session(client, user_id, list_id, questions):
     """
     Start a new quiz session: stores the full set of AI-generated questions
     (converted from Pydantic Question objects to plain dicts via
@@ -192,7 +211,7 @@ def create_quiz_session(user_id, list_id, questions):
     all use their column defaults (0, "in_progress", now(), now()).
     Returns the new session's id, needed for all subsequent progress updates.
     """
-    response = supabase.table("quiz_sessions").insert({
+    response = client.table("quiz_sessions").insert({
         "user_id": user_id,
         "list_id": list_id,
         "questions": [q.model_dump() for q in questions]
@@ -200,7 +219,7 @@ def create_quiz_session(user_id, list_id, questions):
     return response.data[0]["id"]
 
 
-def update_quiz_session(session_id, user_id, current_index, status=None):
+def update_quiz_session(client, session_id, user_id, current_index, status=None):
     """
     Update an in-progress session's position after each answered question.
     Scoped to user_id as well as session_id so one user can't update another
@@ -216,10 +235,10 @@ def update_quiz_session(session_id, user_id, current_index, status=None):
     update = {"current_index": current_index}
     if status is not None:
         update["status"] = status
-    supabase.table("quiz_sessions").update(update).eq("id", session_id).eq("user_id", user_id).execute()
+    client.table("quiz_sessions").update(update).eq("id", session_id).eq("user_id", user_id).execute()
 
 
-def get_active_sessions(user_id):
+def get_active_sessions(client, user_id):
     """
     Fetch every in-progress quiz session for a user — supports multiple
     concurrent quizzes (e.g., a Spanish list at 8/20 and a French list at
@@ -227,14 +246,14 @@ def get_active_sessions(user_id):
     UI on the home screen.
     Returns a list of matching session rows, or None if there are none.
     """
-    result = supabase.table("quiz_sessions").select("*").eq("user_id", user_id).eq("status", "in_progress").execute()
+    result = client.table("quiz_sessions").select("*").eq("user_id", user_id).eq("status", "in_progress").execute()
     if len(result.data) > 0:
         return result.data
     else:
         return None
 
 
-def get_quiz_history_for_list(list_id, user_id):
+def get_quiz_history_for_list(client, list_id, user_id):
     """
     Fetch this user's completed quizzes for one list, each with a raw score
     (correct/total from quiz_attempts) — powers the score-over-time list and
@@ -247,7 +266,7 @@ def get_quiz_history_for_list(list_id, user_id):
     possibly empty.
     """
     sessions_result = (
-        supabase.table("quiz_sessions")
+        client.table("quiz_sessions")
         .select("id, last_active_at")
         .eq("list_id", list_id)
         .eq("user_id", user_id)
@@ -261,7 +280,7 @@ def get_quiz_history_for_list(list_id, user_id):
 
     session_ids = [s["id"] for s in sessions]
     attempts_result = (
-        supabase.table("quiz_attempts")
+        client.table("quiz_attempts")
         .select("session_id, was_correct")
         .in_("session_id", session_ids)
         .execute()
@@ -286,7 +305,7 @@ def get_quiz_history_for_list(list_id, user_id):
     ]
 
 
-def delete_stale_completed_sessions(user_id, days=30):
+def delete_stale_completed_sessions(client, user_id, days=30):
     """
     Deletes this user's completed quiz sessions whose last_active_at (set
     at completion time, via the moddatetime trigger) is older than `days`
@@ -296,33 +315,33 @@ def delete_stale_completed_sessions(user_id, days=30):
     In-progress sessions are untouched regardless of age.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    supabase.table("quiz_sessions").delete().eq("user_id", user_id).eq(
+    client.table("quiz_sessions").delete().eq("user_id", user_id).eq(
         "status", "completed"
     ).lt("last_active_at", cutoff).execute()
 
 
-def delete_quiz_session(session_id, user_id):
+def delete_quiz_session(client, session_id, user_id):
     """
     Delete a quiz_sessions row entirely, scoped to user_id so one user can't
     delete another user's session by guessing its id. Lets a user discard an
     in-progress quiz from "My Quizzes" without needing to finish or delete
     the underlying list.
     """
-    supabase.table("quiz_sessions").delete().eq("id", session_id).eq("user_id", user_id).execute()
+    client.table("quiz_sessions").delete().eq("id", session_id).eq("user_id", user_id).execute()
 
 
 # ============================================================
 # QUIZ ATTEMPTS — per-word right/wrong history, powers adaptive requizzing
 # ============================================================
 
-def create_quiz_attempt(user_id, session_id, vocab_pair_id, question_text, skill_category, was_correct):
+def create_quiz_attempt(client, user_id, session_id, vocab_pair_id, question_text, skill_category, was_correct):
     """
     Records one answered (or skipped) question. vocab_pair_id may be None
     (e.g. a question generated from a pair with no id) — still recorded,
     just won't factor into select_quiz_pairs_for_list()'s weighting since
     that groups by vocab_pair_id.
     """
-    supabase.table("quiz_attempts").insert({
+    client.table("quiz_attempts").insert({
         "user_id": user_id,
         "session_id": session_id,
         "vocab_pair_id": vocab_pair_id,
@@ -351,7 +370,7 @@ def _dedupe_pairs_by_target(pairs):
     return deduped
 
 
-def select_quiz_pairs_for_list(list_id, user_id, count):
+def select_quiz_pairs_for_list(client, list_id, user_id, count):
     """
     Picks `count` pairs from a list for a new quiz, weighted toward pairs
     this user has gotten wrong before — so requizzing the same list leans
@@ -369,11 +388,11 @@ def select_quiz_pairs_for_list(list_id, user_id, count):
     user_id column of its own, so ownership can only be checked via the
     parent list).
     """
-    list_result = supabase.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
+    list_result = client.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
     if len(list_result.data) == 0:
         return None
 
-    pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
+    pairs_result = client.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
     pairs = _dedupe_pairs_by_target(pairs_result.data)
     if not pairs:
         return []
@@ -383,7 +402,7 @@ def select_quiz_pairs_for_list(list_id, user_id, count):
 
     pair_ids = [p["id"] for p in pairs]
     attempts_result = (
-        supabase.table("quiz_attempts")
+        client.table("quiz_attempts")
         .select("vocab_pair_id, was_correct")
         .eq("user_id", user_id)
         .in_("vocab_pair_id", pair_ids)
@@ -398,7 +417,7 @@ def select_quiz_pairs_for_list(list_id, user_id, count):
     return _weighted_sample_without_replacement(pairs, weights, count)
 
 
-def get_missed_pairs_for_list(list_id, user_id):
+def get_missed_pairs_for_list(client, list_id, user_id):
     """
     Fetches everything the "quiz insight" feature needs: this list's full
     pairs (deduped, ownership-checked) plus which of them the user has
@@ -408,7 +427,7 @@ def get_missed_pairs_for_list(list_id, user_id):
     the data.
     """
     list_result = (
-        supabase.table("vocab_lists")
+        client.table("vocab_lists")
         .select("id, target_language")
         .eq("id", list_id)
         .eq("user_id", user_id)
@@ -418,14 +437,14 @@ def get_missed_pairs_for_list(list_id, user_id):
         return None
     target_language = list_result.data[0]["target_language"]
 
-    pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
+    pairs_result = client.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
     pairs = _dedupe_pairs_by_target(pairs_result.data)
 
     wrong_counts = {}
     pair_ids = [p["id"] for p in pairs]
     if pair_ids:
         attempts_result = (
-            supabase.table("quiz_attempts")
+            client.table("quiz_attempts")
             .select("vocab_pair_id, was_correct")
             .eq("user_id", user_id)
             .in_("vocab_pair_id", pair_ids)
@@ -467,7 +486,7 @@ def _weighted_sample_without_replacement(items, weights, count):
 # ACCOUNT DELETION
 # ============================================================
 
-def delete_all_user_data(user_id):
+def delete_all_user_data(client, user_id):
     """
     Deletes every vocab_lists/vocab_pairs/quiz_sessions/quiz_attempts row
     belonging to a user. Used when deleting an account — this must run
@@ -475,9 +494,9 @@ def delete_all_user_data(user_id):
     auth.supabase_auth.delete_own_account), since once the auth user is
     gone there's no user_id left to scope a cleanup query to.
     """
-    lists = supabase.table("vocab_lists").select("id").eq("user_id", user_id).execute()
+    lists = client.table("vocab_lists").select("id").eq("user_id", user_id).execute()
     for row in lists.data:
-        delete_vocab_pairs_for_list(row["id"])
-    supabase.table("vocab_lists").delete().eq("user_id", user_id).execute()
-    supabase.table("quiz_sessions").delete().eq("user_id", user_id).execute()
-    supabase.table("quiz_attempts").delete().eq("user_id", user_id).execute()
+        delete_vocab_pairs_for_list(client, row["id"])
+    client.table("vocab_lists").delete().eq("user_id", user_id).execute()
+    client.table("quiz_sessions").delete().eq("user_id", user_id).execute()
+    client.table("quiz_attempts").delete().eq("user_id", user_id).execute()

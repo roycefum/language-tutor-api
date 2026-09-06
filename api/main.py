@@ -17,7 +17,7 @@ from api.schemas import (
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
-from api.deps import get_current_user_id, bearer_scheme
+from api.deps import get_current_user_id, get_db_client, bearer_scheme
 from data.db import (
     create_quiz_session,
     update_quiz_session,
@@ -112,11 +112,12 @@ def route_logout(request: LogoutRequest, credentials: HTTPAuthorizationCredentia
 @app.delete("/account")
 def route_delete_account(
     current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
 ):
     # App data must go first — once the auth user is deleted there's no
     # user_id left to scope the cleanup query to.
-    delete_all_user_data(current_user_id)
+    delete_all_user_data(client, current_user_id)
     delete_own_account(credentials.credentials)
     return {"status": "deleted"}
 
@@ -126,8 +127,13 @@ def route_delete_account(
 # ============================================================
 
 @app.post("/save-list")
-def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get_current_user_id)):
+def route_save_list(
+    request: SaveListRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
     list_id = save_list_if_valid(
+        client,
         current_user_id,
         request.name,
         request.source,
@@ -140,33 +146,46 @@ def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get
 
 
 @app.get("/lists")
-def route_get_user_lists(current_user_id: str = Depends(get_current_user_id)):
-    lists = get_user_lists(current_user_id)
+def route_get_user_lists(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
+    lists = get_user_lists(client, current_user_id)
     return {"lists": lists}
 
 
 @app.get("/lists/{list_id}")
-def route_get_list(list_id: str, current_user_id: str = Depends(get_current_user_id)):
-    list_data = get_list_with_pairs(list_id, current_user_id)
+def route_get_list(
+    list_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    list_data = get_list_with_pairs(client, list_id, current_user_id)
     if list_data is None:
         raise HTTPException(status_code=404, detail="List not found")
     return list_data
 
 
 @app.delete("/lists/{list_id}")
-def route_delete_list(list_id: str, current_user_id: str = Depends(get_current_user_id)):
-    deleted = delete_list_and_pairs(list_id, current_user_id)
+def route_delete_list(
+    list_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    deleted = delete_list_and_pairs(client, list_id, current_user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="List not found")
     return {"status": "deleted"}
 
 
 @app.get("/lists/{list_id}/quiz-pairs")
-def route_select_quiz_pairs(list_id: str, count: int, current_user_id: str = Depends(get_current_user_id)):
+def route_select_quiz_pairs(
+    list_id: str,
+    count: int,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
     # Weighted toward previously-wrong pairs for this user — see
     # select_quiz_pairs_for_list()'s docstring for the weighting formula.
     # This is what makes requizzing the same list "get smarter" over time.
-    pairs = select_quiz_pairs_for_list(list_id, current_user_id, count)
+    pairs = select_quiz_pairs_for_list(client, list_id, current_user_id, count)
     if pairs is None:
         raise HTTPException(status_code=404, detail="List not found")
     return {"pairs": pairs}
@@ -180,8 +199,13 @@ MIN_DISTINCT_MISSED_WORDS_FOR_INSIGHT = 3
 
 
 @app.get("/lists/{list_id}/quiz-insight")
-def route_get_quiz_insight(list_id: str, count: int, current_user_id: str = Depends(get_current_user_id)):
-    data = get_missed_pairs_for_list(list_id, current_user_id)
+def route_get_quiz_insight(
+    list_id: str,
+    count: int,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    data = get_missed_pairs_for_list(client, list_id, current_user_id)
     if data is None:
         raise HTTPException(status_code=404, detail="List not found")
 
@@ -202,8 +226,12 @@ def route_get_quiz_insight(list_id: str, count: int, current_user_id: str = Depe
 
 
 @app.get("/lists/{list_id}/quiz-history")
-def route_get_quiz_history(list_id: str, current_user_id: str = Depends(get_current_user_id)):
-    history = get_quiz_history_for_list(list_id, current_user_id)
+def route_get_quiz_history(
+    list_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    history = get_quiz_history_for_list(client, list_id, current_user_id)
     return {"history": history}
 
 
@@ -258,40 +286,58 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
 # ============================================================
 
 @app.post("/quiz-sessions")
-def route_create_quiz_session(request: CreateQuizSessionRequest, current_user_id: str = Depends(get_current_user_id)):
-    session_id = create_quiz_session(current_user_id, request.list_id, request.questions)
+def route_create_quiz_session(
+    request: CreateQuizSessionRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    session_id = create_quiz_session(client, current_user_id, request.list_id, request.questions)
     return {"session_id": session_id}
 
 
 @app.patch("/quiz-sessions/{session_id}")
-def route_update_quiz_session(session_id: str, request: UpdateQuizSessionRequest, current_user_id: str = Depends(get_current_user_id)):
-    update_quiz_session(session_id, current_user_id, request.current_index, request.status)
+def route_update_quiz_session(
+    session_id: str,
+    request: UpdateQuizSessionRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    update_quiz_session(client, session_id, current_user_id, request.current_index, request.status)
     return {"status": "updated"}
 
 
 @app.get("/quiz-sessions")
-def route_get_active_sessions(current_user_id: str = Depends(get_current_user_id)):
-    sessions = get_active_sessions(current_user_id)
+def route_get_active_sessions(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
+    sessions = get_active_sessions(client, current_user_id)
     return {"sessions": sessions or []}
 
 
 @app.delete("/quiz-sessions/{session_id}")
-def route_delete_quiz_session(session_id: str, current_user_id: str = Depends(get_current_user_id)):
-    delete_quiz_session(session_id, current_user_id)
+def route_delete_quiz_session(
+    session_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    delete_quiz_session(client, session_id, current_user_id)
     return {"status": "deleted"}
 
 
 @app.delete("/quiz-sessions/stale/cleanup")
-def route_delete_stale_sessions(current_user_id: str = Depends(get_current_user_id)):
+def route_delete_stale_sessions(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
     # Opt-in, triggered from the frontend only when the user has enabled
     # "auto-delete old quizzes" in Settings — see delete_stale_completed_sessions.
-    delete_stale_completed_sessions(current_user_id)
+    delete_stale_completed_sessions(client, current_user_id)
     return {"status": "deleted"}
 
 
 @app.post("/quiz-attempts")
-def route_create_attempt(request: CreateAttemptRequest, current_user_id: str = Depends(get_current_user_id)):
+def route_create_attempt(
+    request: CreateAttemptRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
     create_quiz_attempt(
+        client,
         current_user_id,
         request.session_id,
         request.vocab_pair_id,
