@@ -26,3 +26,13 @@ class VocabPair(BaseModel):
 class ExtractedVocabList(BaseModel):
     pairs: List[VocabPair]
 
+
+class PatternAnalysis(BaseModel):
+    # One encouraging, specific sentence naming what the learner is doing
+    # well and what pattern (e.g. a stem-change type, tense, irregularity)
+    # is giving them trouble — shown directly to the user on Generate Quiz.
+    message: str
+    # Pair ids (from the full list) chosen to reinforce that same weak
+    # pattern — used for the "Target My Mistakes" quiz option.
+    targeted_pair_ids: List[str]
+

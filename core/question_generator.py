@@ -4,7 +4,7 @@ from google.genai import types
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List
-from data.models import Question,QuestionBatch
+from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
 
@@ -110,16 +110,37 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 Situational/scenario-based (like the math exam one): "Este examen de matemáticas es muy ___, no entiendo nada." → difícil
                 Cause-and-effect/reasoning-based: "Como no dormí anoche, hoy me siento muy ___." (Since I didn't sleep last night, today I feel very ___.) → cansado (tired)
                 Comparison-based: "A diferencia de mi hermano, que es muy alto, yo soy bastante ___." (Unlike my brother, who is very tall, I am quite ___.) → bajo (short)
+                Contrast with another named person (useful for disambiguating within a category, e.g. family roles, without resorting to a definition): "Aunque mi padre cocina muy bien, mi ___ siempre prefiere pedir comida a domicilio." (Even though my father cooks well, my ___ always prefers to order delivery food.) → madre
 
                 Here are some bad exmaples:
                 Too generic: "Mi ___ es muy grande." → fails because many nouns fit
                 Definitional: "Un edificio residencial independiente con paredes y techo donde vive una sola familia es una ___." → fails
                 because it defines the word instead of using it naturally
                 Leaks the answer: "Mis padres me compraron un ___ grande y peludo. (perro)" → fails because the parenthetical directly reveals the translation
-                
+                Whole-category ambiguity: "Usé el ___ para arreglar la tele." (I used the ___ to fix the TV.) → fails because any tool
+                (destornillador, martillo, alicate...) fits equally well, not just the intended one. Same problem with "Me gusta comer ___
+                para el almuerzo." (any food fits) or "Mi ___ amable me despierta y me hace el desayuno." (any family member fits).
+
+                Before finalizing each question, check it against this: could an entire CATEGORY of words — not just the exact target term —
+                fit the blank equally well (any tool, any food, any family member, any color, etc.)? If swapping in a different member of
+                that same category would still make the sentence sound completely natural, the sentence is not specific enough. Fix it with
+                a natural, concrete, distinguishing detail — a specific action, cause, contrast with another named person, or fact — that is
+                true of the target word but not of other members of its category. Do NOT fix it by turning the sentence into a dictionary-style
+                definition (e.g. "the person who gave birth to me") — that trades one banned pattern for another. Natural techniques like
+                contrasting with another named person (see the madre/padre example above), pronouns, or situational context work better than
+                spelling out what the word means.
+
+                Infinitive verbs: if a target_term begins with "to " (e.g. "to walk"), that "to" is part of the
+                required answer, not decoration — the blank must be filled with the whole target_term, "to" included.
+                Do NOT write a sentence that already places its own "to" immediately before the blank (e.g. "I like
+                to ___" with target_term "to walk" would require typing "to" twice, which is wrong and unanswerable).
+                Instead, use a sentence pattern where the blank naturally stands alone as the full infinitive, such
+                as a goal/purpose statement ("My goal this year is ___ every day.") or the sentence's subject
+                ("___ every morning helps me wake up.") — never a pattern that already supplies "to" right before it.
+
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
-                
+
                 Now write a similar question for target term
                 The question should be a natural sentence phrased to test the user's knowledge of {target_language}
                 Do NOT write the question as a dictionary-style definition of target term. 
@@ -159,5 +180,58 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     return questions
 
 
-   
+def analyze_missed_pattern(missed_pairs: list[dict], all_pairs: list[dict], target_language: str, count: int) -> PatternAnalysis:
+    """
+    Given the words a learner has gotten wrong on a list, asks Gemini to
+    name the actual pattern behind the mistakes (a conjugation class,
+    stem-change type, tense, or other grammatical pattern for verbs — or
+    just note there's no strong pattern for a plain vocab list) and pick
+    `count` pairs from the full list that reinforce that same weak spot.
+    Only meaningful once there's enough wrong-answer history — the caller
+    (select_quiz_pairs_for_list's threshold check) is responsible for not
+    calling this on too little data.
+    """
+    missed = [{"source word": p["source_term"], "target word": p["target_term"]} for p in missed_pairs]
+    full_list = [
+        {"id": p["id"], "source word": p["source_term"], "target word": p["target_term"]}
+        for p in all_pairs
+    ]
+
+    prompt = f""" A language learner is studying {target_language} vocabulary. Here are words they have
+                gotten wrong recently: {missed}
+
+                Here is their full vocabulary list to choose from: {full_list}
+
+                Identify what pattern connects the words they got wrong. For verbs, name the actual
+                grammatical pattern — conjugation class (-ar/-er/-ir), a specific stem-change type
+                (e.g. e→ie, o→ue, e→i), tense, or irregularity — not just "these words." For non-verb
+                vocabulary, or if the mistakes don't share a real pattern, say so plainly instead of
+                inventing one.
+
+                Write one encouraging, specific message combining what they're doing well with what's
+                giving them trouble, and end it by noting this next quiz will target their weak spot.
+                For example: "You're doing well with -ar verbs, but stem-change verbs like e→ie are
+                giving you trouble. This next quiz will target what you're struggling with." Keep it to
+                1-2 sentences. Write the message in {target_language} if a learner at this stage would
+                reasonably understand it, otherwise in English — clarity matters more than which
+                language it's in.
+
+                Then select {count} pairs (by id) from the full vocabulary list above that would give
+                the learner the most practice on that same weak pattern. If there's no real pattern,
+                just pick a reasonable mix instead.
+            """
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=PatternAnalysis,
+            ),
+        )
+    except Exception as e:
+        raise GeminiAPIError(f"analyze_missed_pattern failed: {e}") from e
+
+    return response.parsed
 

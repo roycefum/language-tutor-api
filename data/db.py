@@ -2,7 +2,7 @@ import os
 import random
 from dotenv import load_dotenv
 from supabase import create_client, Client
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 load_dotenv()
 url = os.getenv("SUPABASE_URL")
@@ -198,17 +198,23 @@ def create_quiz_session(user_id, list_id, questions):
     return response.data[0]["id"]
 
 
-def update_quiz_session(session_id, user_id, current_index):
+def update_quiz_session(session_id, user_id, current_index, status=None):
     """
     Update an in-progress session's position after each answered question.
     Scoped to user_id as well as session_id so one user can't update another
     user's session by guessing/knowing its id. last_active_at updates
     automatically via a moddatetime trigger on this table, so it doesn't
     need to be set explicitly here.
+
+    `status` is optional and only passed when the quiz screen detects the
+    last question has been answered — set to "completed" at that point so
+    the session stops showing under "Continue a Quiz" and starts counting
+    toward that list's quiz-history/score tracking.
     """
-    supabase.table("quiz_sessions").update({
-        "current_index": current_index
-    }).eq("id", session_id).eq("user_id", user_id).execute()
+    update = {"current_index": current_index}
+    if status is not None:
+        update["status"] = status
+    supabase.table("quiz_sessions").update(update).eq("id", session_id).eq("user_id", user_id).execute()
 
 
 def get_active_sessions(user_id):
@@ -224,6 +230,83 @@ def get_active_sessions(user_id):
         return result.data
     else:
         return None
+
+
+def get_quiz_history_for_list(list_id, user_id):
+    """
+    Fetch this user's completed quizzes for one list, each with a raw score
+    (correct/total from quiz_attempts) — powers the score-over-time list and
+    line graph on the list-history screen. Ordered oldest to newest, since
+    the graph and trend feedback both read left-to-right as "over time".
+    last_active_at is used as the completion timestamp — there's no
+    separate completed_at column, and last_active_at is set (via the
+    moddatetime trigger) at the same moment status flips to "completed".
+    Returns a list of {session_id, completed_at, correct, total} dicts,
+    possibly empty.
+    """
+    sessions_result = (
+        supabase.table("quiz_sessions")
+        .select("id, last_active_at")
+        .eq("list_id", list_id)
+        .eq("user_id", user_id)
+        .eq("status", "completed")
+        .order("last_active_at")
+        .execute()
+    )
+    sessions = sessions_result.data
+    if not sessions:
+        return []
+
+    session_ids = [s["id"] for s in sessions]
+    attempts_result = (
+        supabase.table("quiz_attempts")
+        .select("session_id, was_correct")
+        .in_("session_id", session_ids)
+        .execute()
+    )
+    totals = {}
+    corrects = {}
+    for attempt in attempts_result.data:
+        sid = attempt["session_id"]
+        totals[sid] = totals.get(sid, 0) + 1
+        if attempt["was_correct"]:
+            corrects[sid] = corrects.get(sid, 0) + 1
+
+    return [
+        {
+            "session_id": s["id"],
+            "completed_at": s["last_active_at"],
+            "correct": corrects.get(s["id"], 0),
+            "total": totals.get(s["id"], 0),
+        }
+        for s in sessions
+        if totals.get(s["id"], 0) > 0
+    ]
+
+
+def delete_stale_completed_sessions(user_id, days=30):
+    """
+    Deletes this user's completed quiz sessions whose last_active_at (set
+    at completion time, via the moddatetime trigger) is older than `days`
+    days ago. Opt-in only — called from the frontend when the user has
+    enabled "auto-delete old quizzes" in Settings; otherwise completed
+    sessions are kept indefinitely so score history stays intact.
+    In-progress sessions are untouched regardless of age.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    supabase.table("quiz_sessions").delete().eq("user_id", user_id).eq(
+        "status", "completed"
+    ).lt("last_active_at", cutoff).execute()
+
+
+def delete_quiz_session(session_id, user_id):
+    """
+    Delete a quiz_sessions row entirely, scoped to user_id so one user can't
+    delete another user's session by guessing its id. Lets a user discard an
+    in-progress quiz from "My Quizzes" without needing to finish or delete
+    the underlying list.
+    """
+    supabase.table("quiz_sessions").delete().eq("id", session_id).eq("user_id", user_id).execute()
 
 
 # ============================================================
@@ -245,6 +328,25 @@ def create_quiz_attempt(user_id, session_id, vocab_pair_id, question_text, skill
         "skill_category": skill_category,
         "was_correct": was_correct,
     }).execute()
+
+
+def _dedupe_pairs_by_target(pairs):
+    """
+    Collapses pairs that share the same target word (case/whitespace
+    insensitive) down to one representative. A list can end up with the
+    same word saved more than once (typed or pasted in twice) — without
+    this, a quiz could ask the same target word more than once even when
+    plenty of other words are available to fill the requested count.
+    """
+    seen = set()
+    deduped = []
+    for pair in pairs:
+        key = pair["target_term"].strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(pair)
+    return deduped
 
 
 def select_quiz_pairs_for_list(list_id, user_id, count):
@@ -270,7 +372,7 @@ def select_quiz_pairs_for_list(list_id, user_id, count):
         return None
 
     pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
-    pairs = pairs_result.data
+    pairs = _dedupe_pairs_by_target(pairs_result.data)
     if not pairs:
         return []
 
@@ -292,6 +394,53 @@ def select_quiz_pairs_for_list(list_id, user_id, count):
 
     weights = [1 + wrong_counts.get(p["id"], 0) * 3 for p in pairs]
     return _weighted_sample_without_replacement(pairs, weights, count)
+
+
+def get_missed_pairs_for_list(list_id, user_id):
+    """
+    Fetches everything the "quiz insight" feature needs: this list's full
+    pairs (deduped, ownership-checked) plus which of them the user has
+    gotten wrong before. Returns None if the list doesn't exist for this
+    user. The caller decides whether there's enough wrong-answer signal to
+    bother calling analyze_missed_pattern() — this function just gathers
+    the data.
+    """
+    list_result = (
+        supabase.table("vocab_lists")
+        .select("id, target_language")
+        .eq("id", list_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if len(list_result.data) == 0:
+        return None
+    target_language = list_result.data[0]["target_language"]
+
+    pairs_result = supabase.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
+    pairs = _dedupe_pairs_by_target(pairs_result.data)
+
+    wrong_counts = {}
+    pair_ids = [p["id"] for p in pairs]
+    if pair_ids:
+        attempts_result = (
+            supabase.table("quiz_attempts")
+            .select("vocab_pair_id, was_correct")
+            .eq("user_id", user_id)
+            .in_("vocab_pair_id", pair_ids)
+            .execute()
+        )
+        for attempt in attempts_result.data:
+            if not attempt["was_correct"]:
+                wrong_counts[attempt["vocab_pair_id"]] = wrong_counts.get(attempt["vocab_pair_id"], 0) + 1
+
+    missed_pairs = [p for p in pairs if wrong_counts.get(p["id"], 0) > 0]
+
+    return {
+        "target_language": target_language,
+        "all_pairs": pairs,
+        "missed_pairs": missed_pairs,
+        "total_wrong_attempts": sum(wrong_counts.values()),
+    }
 
 
 def _weighted_sample_without_replacement(items, weights, count):

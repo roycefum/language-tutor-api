@@ -44,6 +44,7 @@ class CreateQuizSessionRequest(BaseModel):
 
 class UpdateQuizSessionRequest(BaseModel):
     current_index: int
+    status: str | None = None
 
 
 class CreateAttemptRequest(BaseModel):
