@@ -94,10 +94,10 @@ def remove_accents(text):
     return ''.join(char for char in normalized if not unicodedata.combining(char))
 
 
-def save_list_if_valid(user_id, name, source, source_language, target_language, pairs):
+def save_list_if_valid(user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
     """
     Thin wrapper around data.db.save_list(). Kept as its own function so
     API routes have one consistent entry point for saving a list, matching
     the naming/shape used elsewhere in the codebase.
     """
-    return save_list(user_id, name, source, source_language, target_language, pairs)
+    return save_list(user_id, name, source, source_language, target_language, pairs, list_type)

@@ -7,6 +7,7 @@ from typing import List
 from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
+from core.tenses import get_tense_label
 
 load_dotenv()
 client = genai.Client()
@@ -81,16 +82,56 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return _repair_question(response.parsed)
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
+    tense_label = get_tense_label(target_language, verb_tense) if verb_tense else None
+    tense_instruction = (
+        f'For every VERB pair in this batch (see the Verb conjugation guidance below), conjugate it '
+        f'specifically in the {tense_label} — do not vary the tense for verb pairs in this batch, use '
+        f'{tense_label} for all of them. Still vary the subject/person across questions so they are not all '
+        f'identical.'
+        if tense_label
+        else ""
+    )
 
     # Pairs may carry an "id" (from a saved list, used below to stamp each
     # returned Question with its source vocab_pair_id) that has nothing to
     # do with the question content — strip it before it goes in the prompt.
     prompt_pairs = [{"source word": p["source word"], "target word": p["target word"]} for p in pairs]
 
-    prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
+    # Flip mode tests comprehension instead of production: the target word is
+    # given, visible, in a natural sentence — the learner just translates it
+    # back to source_language. This is a deliberately separate, much simpler
+    # prompt branch (no blank, no whole-category-ambiguity concerns, no verb
+    # conjugation) rather than threading a flag through the production prompt
+    # below — flip is vocab-only, not meant to interact with verb handling.
+    if flip:
+        prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term". The source term (the first term) is in
+                {source_language} — the language the user already knows. The target term (the second term) is in {target_language} — the language the user is learning.
+
+                Write a batch of {batch_size} questions, one per pair, in the same order. This tests the REVERSE
+                of normal vocabulary testing: whether the learner can translate a {target_language} word back into
+                {source_language}, given the word itself.
+
+                For each pair, write one natural sentence entirely in {target_language} that uses the target_term
+                in context, with the target_term itself wrapped in square brackets — e.g. "El perro corre en el
+                [parque]." Do NOT blank it out or hide it; the word must be visible exactly as target_term (a
+                minimally-inflected natural form, e.g. pluralized, is fine if the sentence calls for it).
+
+                {cefr_guidance}
+                This complexity guidance applies to the sentence surrounding the bracketed word, not to the word
+                itself.
+
+                The correct_answer for each question must be exactly source_term, verbatim, in {source_language} —
+                this is a direct vocabulary pair with a known translation, so do not invent an alternate
+                translation, paraphrase, or add extra words.
+
+                Do not include source_term anywhere in the question_text itself — the sentence must be entirely in
+                {target_language}, with only the bracketed target_term as the word being tested.
+            """
+    else:
+        prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
                 {source_language}. This is the language that the user already knows. The target term (the second term) is in the {target_language}. This is the
                 language that the user is learning.
                 Write a batch of {batch_size} questions. One question per pair, in the same order Each question should be formed with the following guidelines:
@@ -130,23 +171,42 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 contrasting with another named person (see the madre/padre example above), pronouns, or situational context work better than
                 spelling out what the word means.
 
-                Infinitive verbs: if a target_term begins with "to " (e.g. "to walk"), that "to" is part of the
-                required answer, not decoration — the blank must be filled with the whole target_term, "to" included.
-                Do NOT write a sentence that already places its own "to" immediately before the blank (e.g. "I like
-                to ___" with target_term "to walk" would require typing "to" twice, which is wrong and unanswerable).
-                Instead, use a sentence pattern where the blank naturally stands alone as the full infinitive, such
-                as a goal/purpose statement ("My goal this year is ___ every day.") or the sentence's subject
-                ("___ every morning helps me wake up.") — never a pattern that already supplies "to" right before it.
+                Verb conjugation: a pair is a VERB pair if source_term or target_term begins with "to " (e.g. "to
+                walk"). For these pairs, do NOT use the bare infinitive as the blank's answer — the goal is to test
+                whether the learner can actually conjugate the verb, not just recall its infinitive. Instead:
+                1. Find the bare infinitive to conjugate: if target_term begins with "to ", strip that "to " to get
+                   it (e.g. "to walk" → "walk"); otherwise target_term is already the bare infinitive (e.g. "caminar",
+                   a Spanish/French infinitive needs no stripping).
+                2. Pick a natural subject (a pronoun, a name, or a noun) and a tense/mood appropriate to the
+                   complexity level above, then conjugate the infinitive for that subject and tense in
+                   {target_language} (e.g. "caminar" + "ella" + preterite → "caminó").
+                3. Make that specific conjugated form — not the infinitive — both the blank and the correct_answer
+                   for this question.
+                4. After the sentence, append the bare infinitive in parentheses, e.g. "Ayer, mi hermano ___ cinco
+                   millas. (caminar)". Since the infinitive is given directly, the sentence does NOT need to include
+                   a clue disambiguating WHICH verb it is (the whole-category-ambiguity check above does not apply
+                   to identifying the verb itself for verb pairs) — the learner already knows which verb to
+                   conjugate. The sentence only needs to make the intended SUBJECT and TENSE clear enough to
+                   determine the one correct conjugated form (an explicit pronoun or name, a time marker like
+                   "ayer"/"mañana"/"todos los días", or clear context).
+                5. Vary the subject and tense across the different verb questions in this batch rather than
+                   defaulting to the same person/tense every time — this is what makes a requiz of the same verb
+                   list actually test different conjugations over time. {tense_instruction}
+
+                Non-verb pairs (source_term and target_term both lack a leading "to ") are unaffected by the above —
+                the blank is the target_term itself, exactly as already described, with no parenthetical infinitive
+                and the full whole-category-ambiguity check still applying.
 
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
 
                 Now write a similar question for target term
                 The question should be a natural sentence phrased to test the user's knowledge of {target_language}
-                Do NOT write the question as a dictionary-style definition of target term. 
-                The sentence should use the word naturally, in a realistic situation or context, 
+                Do NOT write the question as a dictionary-style definition of target term.
+                The sentence should use the word naturally, in a realistic situation or context,
                 not describe or define what the word means.
-                Use "_____" to mark where the blank goes. The blank is the target_term
+                Use "_____" to mark where the blank goes. The blank is the target_term, or — for a verb pair per the
+                Verb conjugation guidance above — the specific conjugated form derived from it.
                 Do not use source_term in the question text.
 
 

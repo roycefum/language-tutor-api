@@ -33,7 +33,7 @@ def find_list_by_name(user_id, name):
 # VOCAB LISTS — create / update / delete
 # ============================================================
 
-def create_list(user_id, name, source, source_language, target_language):
+def create_list(user_id, name, source, source_language, target_language, list_type="vocab"):
     """
     Insert a brand-new vocab_lists row. Does NOT insert the actual vocab
     pairs — that's a separate step (see insert_vocab_pairs). id, created_at,
@@ -46,23 +46,25 @@ def create_list(user_id, name, source, source_language, target_language):
         "name": name,
         "source": source,
         "source_language": source_language,
-        "target_language": target_language
+        "target_language": target_language,
+        "list_type": list_type
     }).execute()
 
     return response.data[0]
 
 
-def update_list(list_id, name, source, source_language, target_language):
+def update_list(list_id, name, source, source_language, target_language, list_type="vocab"):
     """
-    Update an existing vocab_lists row's metadata (name, source, languages).
-    last_modified updates automatically via the moddatetime trigger — no
-    need to set it here.
+    Update an existing vocab_lists row's metadata (name, source, languages,
+    list_type). last_modified updates automatically via the moddatetime
+    trigger — no need to set it here.
     """
     supabase.table("vocab_lists").update({
         "name": name,
         "source": source,
         "source_language": source_language,
-        "target_language": target_language
+        "target_language": target_language,
+        "list_type": list_type
     }).eq("id", list_id).execute()
 
 
@@ -153,7 +155,7 @@ def delete_vocab_pairs_for_list(list_id):
 # ORCHESTRATION — create-or-update a full list in one call
 # ============================================================
 
-def save_list(user_id, name, source, source_language, target_language, pairs):
+def save_list(user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
     """
     The single entry point for saving a vocab list. Checks whether a list
     with this name already exists for this user:
@@ -166,10 +168,10 @@ def save_list(user_id, name, source, source_language, target_language, pairs):
 
     if existing is not None:
         list_id = existing["id"]
-        update_list(list_id, name, source, source_language, target_language)
+        update_list(list_id, name, source, source_language, target_language, list_type)
         delete_vocab_pairs_for_list(list_id)
     else:
-        result = create_list(user_id, name, source, source_language, target_language)
+        result = create_list(user_id, name, source, source_language, target_language, list_type)
         list_id = result["id"]
 
     insert_vocab_pairs(list_id, pairs)

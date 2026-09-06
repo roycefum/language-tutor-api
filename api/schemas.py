@@ -13,6 +13,14 @@ class GenerateQuestionsRequest(BaseModel):
     target_language: str
     batch_size: int
     level: str = DEFAULT_CEFR_LEVEL
+    # Only meaningful for verb-shaped pairs (see core/tenses.py) — a
+    # specific tense to conjugate every verb pair in, instead of the
+    # default of varying subject/tense freely across the batch.
+    verb_tense: str | None = None
+    # Vocab-only reversed-direction mode: shows the target-language word and
+    # asks for its source-language translation, instead of the normal
+    # fill-in-the-blank production direction.
+    flip: bool = False
 
 
 class SaveListRequest(BaseModel):
@@ -21,6 +29,7 @@ class SaveListRequest(BaseModel):
     source_language: str
     target_language: str
     pairs: list[dict]
+    list_type: str = "vocab"
 
 
 class SignUpRequest(BaseModel):

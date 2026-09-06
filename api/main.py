@@ -133,7 +133,8 @@ def route_save_list(request: SaveListRequest, current_user_id: str = Depends(get
         request.source,
         request.source_language,
         request.target_language,
-        request.pairs
+        request.pairs,
+        request.list_type
     )
     return {"list_id": list_id}
 
@@ -245,7 +246,9 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.source_language,
         request.target_language,
         request.batch_size,
-        request.level
+        request.level,
+        request.verb_tense,
+        request.flip
     )
     return result
 
