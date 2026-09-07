@@ -20,6 +20,10 @@ print(f"[startup diagnostic] all env var names containing 'API' or 'GEMINI': {[k
 print(f"[startup diagnostic] SUPABASE_URL set: {bool(os.environ.get('SUPABASE_URL'))}", flush=True)
 print(f"[startup diagnostic] SUPABASE_KEY set: {bool(os.environ.get('SUPABASE_KEY'))}", flush=True)
 print(f"[startup diagnostic] ALL env var names ({len(os.environ)} total): {sorted(os.environ.keys())}", flush=True)
+print(f"[startup diagnostic] RAILWAY_SERVICE_NAME: {os.environ.get('RAILWAY_SERVICE_NAME')}", flush=True)
+print(f"[startup diagnostic] RAILWAY_SERVICE_ID: {os.environ.get('RAILWAY_SERVICE_ID')}", flush=True)
+print(f"[startup diagnostic] RAILWAY_ENVIRONMENT_NAME: {os.environ.get('RAILWAY_ENVIRONMENT_NAME')}", flush=True)
+print(f"[startup diagnostic] RAILWAY_DEPLOYMENT_ID: {os.environ.get('RAILWAY_DEPLOYMENT_ID')}", flush=True)
 
 client = genai.Client()
 
