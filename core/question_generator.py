@@ -17,6 +17,9 @@ print(f"[startup diagnostic] GOOGLE_API_KEY set: {bool(os.environ.get('GOOGLE_AP
 print(f"[startup diagnostic] GEMINI_API_KEY set: {bool(os.environ.get('GEMINI_API_KEY'))}", flush=True)
 print(f"[startup diagnostic] resolved key length: {len(_key) if _key else 0}", flush=True)
 print(f"[startup diagnostic] all env var names containing 'API' or 'GEMINI': {[k for k in os.environ if 'API' in k.upper() or 'GEMINI' in k.upper()]}", flush=True)
+print(f"[startup diagnostic] SUPABASE_URL set: {bool(os.environ.get('SUPABASE_URL'))}", flush=True)
+print(f"[startup diagnostic] SUPABASE_KEY set: {bool(os.environ.get('SUPABASE_KEY'))}", flush=True)
+print(f"[startup diagnostic] ALL env var names ({len(os.environ)} total): {sorted(os.environ.keys())}", flush=True)
 
 client = genai.Client()
 
