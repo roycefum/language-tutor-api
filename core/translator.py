@@ -29,6 +29,11 @@ def translate_word_list(words: list[str], target_language: str) -> TranslationRe
         definition or explanation. If a word could have multiple valid translations, pick the
         single most common one.
 
+        Give the bare translated word or phrase only — no leading article ("the", "a") unless
+        the source word's own article makes it grammatically part of the term (e.g. French "le
+        rhume" -> "cold", not "the cold"). Be consistent: every translation should follow this
+        same bare-word convention.
+
         Return each original word as the "source_term" and its translation as "target_term".
     """
 
