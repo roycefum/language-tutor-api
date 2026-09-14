@@ -87,6 +87,45 @@ def update_list(client, list_id, name, source, source_language, target_language,
     }).eq("id", list_id).execute()
 
 
+def rename_list(client, list_id, user_id, name):
+    """
+    Renames a list in place, independent of its pairs — the counterpart to
+    update_list_pairs() below. Scoped to user_id so one user can't rename
+    another's list by guessing its id. Returns False if no matching list
+    exists for this user (caller should 404), True otherwise.
+    """
+    result = client.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
+    if len(result.data) == 0:
+        return False
+    client.table("vocab_lists").update({"name": name}).eq("id", list_id).execute()
+    return True
+
+
+def update_list_pairs(client, list_id, user_id, source, source_language, target_language, pairs, list_type="vocab"):
+    """
+    Updates an existing list's metadata (excluding name — see rename_list())
+    and replaces its pairs, addressed directly by id rather than by
+    matching on name like save_list() does. This is what lets editing an
+    already-saved list's words never risk creating a duplicate list under
+    a different name. Scoped to user_id; returns False if no matching list
+    exists for this user (caller should 404), True otherwise.
+    """
+    result = client.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
+    if len(result.data) == 0:
+        return False
+
+    client.table("vocab_lists").update({
+        "source": source,
+        "source_language": source_language,
+        "target_language": target_language,
+        "list_type": list_type,
+    }).eq("id", list_id).execute()
+
+    delete_vocab_pairs_for_list(client, list_id)
+    insert_vocab_pairs(client, list_id, pairs)
+    return True
+
+
 def delete_list(client, list_id, user_id):
     """
     Delete a vocab_lists row entirely, scoped to user_id so one user can't

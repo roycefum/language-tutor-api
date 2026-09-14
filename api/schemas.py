@@ -78,3 +78,15 @@ class TranslateWordListRequest(BaseModel):
     words: list[str]
     target_language: str
 
+
+class RenameListRequest(BaseModel):
+    name: str
+
+
+class UpdateListPairsRequest(BaseModel):
+    source: str
+    source_language: str
+    target_language: str
+    pairs: list[dict[str, str]]
+    list_type: str = "vocab"
+

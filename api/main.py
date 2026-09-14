@@ -18,6 +18,8 @@ from api.schemas import (
     CreateAttemptRequest,
     DetectLanguageRequest,
     TranslateWordListRequest,
+    RenameListRequest,
+    UpdateListPairsRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
@@ -32,6 +34,8 @@ from data.db import (
     get_user_lists,
     get_list_with_pairs,
     delete_list_and_pairs,
+    rename_list,
+    update_list_pairs,
     delete_all_user_data,
     create_quiz_attempt,
     get_attempts_for_session,
@@ -178,6 +182,41 @@ def route_delete_list(
     if not deleted:
         raise HTTPException(status_code=404, detail="List not found")
     return {"status": "deleted"}
+
+
+@app.patch("/lists/{list_id}")
+def route_rename_list(
+    list_id: str,
+    request: RenameListRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    renamed = rename_list(client, list_id, current_user_id, request.name)
+    if not renamed:
+        raise HTTPException(status_code=404, detail="List not found")
+    return {"status": "renamed"}
+
+
+@app.put("/lists/{list_id}")
+def route_update_list_pairs(
+    list_id: str,
+    request: UpdateListPairsRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    updated = update_list_pairs(
+        client,
+        list_id,
+        current_user_id,
+        request.source,
+        request.source_language,
+        request.target_language,
+        request.pairs,
+        request.list_type,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="List not found")
+    return {"status": "updated"}
 
 
 @app.get("/lists/{list_id}/quiz-pairs")
