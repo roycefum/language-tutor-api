@@ -202,19 +202,23 @@ def save_list(client, user_id, name, source, source_language, target_language, p
 # QUIZ SESSIONS — persisted, resumable quiz progress
 # ============================================================
 
-def create_quiz_session(client, user_id, list_id, questions):
+def create_quiz_session(client, user_id, list_id, questions, verb_tense=None):
     """
     Start a new quiz session: stores the full set of AI-generated questions
     (converted from Pydantic Question objects to plain dicts via
     .model_dump(), since they're stored as JSON) along with which list
     they belong to. current_index, status, created_at, and last_active_at
     all use their column defaults (0, "in_progress", now(), now()).
+    verb_tense records which tense (if any) was selected on Generate Quiz —
+    None for vocab lists or a "Mixed" tense pick — purely informational, so
+    My Quizzes can show what a resumable verb quiz is actually testing.
     Returns the new session's id, needed for all subsequent progress updates.
     """
     response = client.table("quiz_sessions").insert({
         "user_id": user_id,
         "list_id": list_id,
-        "questions": [q.model_dump() for q in questions]
+        "questions": [q.model_dump() for q in questions],
+        "verb_tense": verb_tense,
     }).execute()
     return response.data[0]["id"]
 

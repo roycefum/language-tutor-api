@@ -49,6 +49,7 @@ class LogoutRequest(BaseModel):
 class CreateQuizSessionRequest(BaseModel):
     list_id: str
     questions: list[Question]
+    verb_tense: str | None = None
 
 
 class UpdateQuizSessionRequest(BaseModel):

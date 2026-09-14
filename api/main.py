@@ -291,7 +291,9 @@ def route_create_quiz_session(
     current_user_id: str = Depends(get_current_user_id),
     client=Depends(get_db_client),
 ):
-    session_id = create_quiz_session(client, current_user_id, request.list_id, request.questions)
+    session_id = create_quiz_session(
+        client, current_user_id, request.list_id, request.questions, request.verb_tense
+    )
     return {"session_id": session_id}
 
 
