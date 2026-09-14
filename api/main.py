@@ -20,9 +20,18 @@ from api.schemas import (
     TranslateWordListRequest,
     RenameListRequest,
     UpdateListPairsRequest,
+    RequestPasswordResetRequest,
+    ResetPasswordRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
-from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
+from auth.supabase_auth import (
+    sign_up,
+    sign_in,
+    sign_out,
+    delete_own_account,
+    request_password_reset,
+    reset_password,
+)
 from api.deps import get_current_user_id, get_db_client, bearer_scheme
 from data.db import (
     create_quiz_session,
@@ -117,6 +126,23 @@ def route_login(request: LoginRequest):
 def route_logout(request: LogoutRequest, credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
     sign_out(credentials.credentials, request.refresh_token)
     return {"status": "logged out"}
+
+
+@app.post("/request-password-reset")
+def route_request_password_reset(request: RequestPasswordResetRequest):
+    # Deep link into the app's own reset-password screen (see
+    # app/reset-password.tsx) — must be allow-listed as a Redirect URL in
+    # the Supabase dashboard's Auth settings, or Supabase silently drops it.
+    request_password_reset(request.email, "langrepsapp://reset-password")
+    # Always the same response regardless of whether the email exists —
+    # matches Supabase's own behavior of not revealing that.
+    return {"status": "if that email exists, a reset link was sent"}
+
+
+@app.post("/reset-password")
+def route_reset_password(request: ResetPasswordRequest):
+    reset_password(request.access_token, request.refresh_token, request.new_password)
+    return {"status": "password updated"}
 
 
 @app.delete("/account")

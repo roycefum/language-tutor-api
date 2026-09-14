@@ -57,6 +57,39 @@ def sign_out(access_token, refresh_token):
         raise AuthError(f"Sign out failed: {e}") from e
 
 
+def request_password_reset(email, redirect_to):
+    """
+    Triggers Supabase's built-in "reset your password" email, containing a
+    recovery link to redirect_to (the app's deep link — see
+    /reset-password.tsx) with the recovery tokens attached. Deliberately
+    never raises on a per-email basis — Supabase itself doesn't reveal
+    whether the address has an account (this call succeeds either way),
+    and the route should mirror that by always responding the same way
+    regardless of outcome.
+    """
+    try:
+        supabase.auth.reset_password_for_email(email, {"redirect_to": redirect_to})
+    except Exception:
+        # Swallowed deliberately — see docstring. A transient Supabase-side
+        # error here shouldn't leak "that email doesn't exist" information.
+        pass
+
+
+def reset_password(access_token, refresh_token, new_password):
+    """
+    Sets a new password using the recovery session from the email link's
+    access_token/refresh_token. Uses a fresh client (set_session mutates
+    client-instance state) the same way sign_out()/delete_own_account() do,
+    for the same concurrency reason.
+    """
+    try:
+        session_client = create_client(url, key)
+        session_client.auth.set_session(access_token, refresh_token)
+        session_client.auth.update_user({"password": new_password})
+    except Exception as e:
+        raise AuthError(f"Password reset failed: {e}") from e
+
+
 def delete_own_account(access_token):
     """
     Calls the delete_own_account() Postgres RPC — a SECURITY DEFINER
