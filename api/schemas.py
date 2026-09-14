@@ -66,3 +66,10 @@ class CreateAttemptRequest(BaseModel):
     user_answer: str
     correct_answer: str
 
+
+class DetectLanguageRequest(BaseModel):
+    # Each dict is {"source word": ..., "target word": ...} — the same
+    # plain shape /parse-vocab-text returns and the frontend already uses,
+    # so no reshaping is needed on either side of this call.
+    pairs: list[dict[str, str]]
+

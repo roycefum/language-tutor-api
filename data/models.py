@@ -23,6 +23,11 @@ class VocabPair(BaseModel):
     source_term: str
     target_term: str
 
+
+class LanguageDetection(BaseModel):
+    source_language: str
+    target_language: str
+
 class ExtractedVocabList(BaseModel):
     pairs: List[VocabPair]
 

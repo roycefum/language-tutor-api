@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch, analyze_missed_pattern
 from core.extraction import extract_vocab_from_image
+from core.language_detector import detect_languages
 from core.exceptions import GeminiAPIError, AuthError
 from api.schemas import (
     GenerateQuestionsRequest,
@@ -14,6 +15,7 @@ from api.schemas import (
     CreateQuizSessionRequest,
     UpdateQuizSessionRequest,
     CreateAttemptRequest,
+    DetectLanguageRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
@@ -262,6 +264,17 @@ async def route_parse_vocab_text(raw_text: str = Form(None), file: UploadFile = 
 
     pairs, skipped_lines = parse_pasted_list(text)
     return {"pairs": pairs, "skipped_lines": skipped_lines}
+
+
+@app.post("/detect-language")
+def route_detect_language(request: DetectLanguageRequest):
+    # Anonymous-use, like /parse-vocab-text — this is a nice-to-have that
+    # pre-fills the language picker after parsing a file/paste/photo, not
+    # something that needs to be tied to an account.
+    if not request.pairs:
+        raise HTTPException(status_code=400, detail="No pairs provided")
+    result = detect_languages(request.pairs)
+    return {"source_language": result.source_language, "target_language": result.target_language}
 
 
 # ============================================================
