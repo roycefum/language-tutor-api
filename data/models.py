@@ -32,6 +32,14 @@ class ExtractedVocabList(BaseModel):
     pairs: List[VocabPair]
 
 
+class TranslationResult(BaseModel):
+    # Detected from the words themselves, not asked of the caller — a
+    # monolingual list (e.g. from a textbook photo/paste with no
+    # translations) doesn't come with a declared source language.
+    source_language: str
+    pairs: List[VocabPair]
+
+
 class PatternAnalysis(BaseModel):
     # One encouraging, specific sentence naming what the learner is doing
     # well and what pattern (e.g. a stem-change type, tense, irregularity)

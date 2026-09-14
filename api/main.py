@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch, analyze_missed_pattern
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
+from core.translator import translate_word_list
 from core.exceptions import GeminiAPIError, AuthError
 from api.schemas import (
     GenerateQuestionsRequest,
@@ -16,6 +17,7 @@ from api.schemas import (
     UpdateQuizSessionRequest,
     CreateAttemptRequest,
     DetectLanguageRequest,
+    TranslateWordListRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import sign_up, sign_in, sign_out, delete_own_account
@@ -275,6 +277,23 @@ def route_detect_language(request: DetectLanguageRequest):
         raise HTTPException(status_code=400, detail="No pairs provided")
     result = detect_languages(request.pairs)
     return {"source_language": result.source_language, "target_language": result.target_language}
+
+
+@app.post("/translate-word-list")
+def route_translate_word_list(request: TranslateWordListRequest):
+    # Anonymous-use, like /parse-vocab-text and /detect-language. Used when
+    # a parsed file/paste turns out to be a monolingual word list (lines
+    # that failed to split into a pair) — translates them into a language
+    # the user picks instead of leaving them stuck as unusable skipped lines.
+    if not request.words:
+        raise HTTPException(status_code=400, detail="No words provided")
+    result = translate_word_list(request.words, request.target_language)
+    return {
+        "source_language": result.source_language,
+        "pairs": [
+            {"source word": p.source_term, "target word": p.target_term} for p in result.pairs
+        ],
+    }
 
 
 # ============================================================

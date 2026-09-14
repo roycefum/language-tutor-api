@@ -73,3 +73,8 @@ class DetectLanguageRequest(BaseModel):
     # so no reshaping is needed on either side of this call.
     pairs: list[dict[str, str]]
 
+
+class TranslateWordListRequest(BaseModel):
+    words: list[str]
+    target_language: str
+
