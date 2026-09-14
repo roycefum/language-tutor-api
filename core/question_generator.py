@@ -30,6 +30,23 @@ def _repair_question(question):
     question.correct_answer = _repair_mojibake_escapes(question.correct_answer)
     return question
 
+
+# Catches the modal-verb self-collision failure mode (e.g. "j'ai dû ___ de
+# l'argent. (devoir)" with correct_answer "dû") — the answer word/phrase
+# shouldn't appear anywhere in the sentence outside the blank it belongs in.
+# Word-boundary matching avoids false positives from short answers that are
+# substrings of unrelated words (e.g. "es" inside "esos").
+_TRAILING_PAREN_RE = re.compile(r"\([^)]*\)\s*$")
+
+
+def _answer_duplicated_in_sentence(question):
+    sentence = _TRAILING_PAREN_RE.sub("", question.question_text)
+    sentence = sentence.replace("_____", " ")
+    answer = question.correct_answer.strip()
+    if not answer:
+        return False
+    return re.search(rf"\b{re.escape(answer)}\b", sentence, re.IGNORECASE) is not None
+
 def question_generator (source_term: str, target_term: str, source_language: str, target_language:str) -> Question:
 
     prompt = f""" {source_term} is the source term in the {source_language}. This is the language that the user already knows.
@@ -82,7 +99,7 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return _repair_question(response.parsed)
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, _retries_left: int = 4) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
     tense_label = get_tense_label(target_language, verb_tense) if verb_tense else None
@@ -193,6 +210,17 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                    defaulting to the same person/tense every time — this is what makes a requiz of the same verb
                    list actually test different conjugations over time. {tense_instruction}
 
+                Modal/semi-auxiliary verbs (e.g. devoir, pouvoir, vouloir, savoir, and their equivalents in other
+                languages) are typically followed by an infinitive complement to form a natural sentence (e.g. "j'ai
+                dû finir mes dossiers" — "finir" is the complement, not the tested word). When target_term is such a
+                verb: the blank and correct_answer must be ONLY the conjugated form of target_term itself. Any
+                infinitive complement the sentence needs must be a DIFFERENT verb, written out normally, NOT left as
+                a second blank and NOT filled with another form of target_term. Never let any form of target_term
+                (conjugated, participle, or infinitive) appear anywhere in the sentence outside the one blank it
+                belongs in — a sentence like "j'ai dû ___ de l'argent (devoir)" where the blank is also meant to be
+                "dû" is wrong twice over: it repeats the already-visible "j'ai dû" and leaves no real infinitive
+                complement.
+
                 Non-verb pairs (source_term and target_term both lack a leading "to ") are unaffected by the above —
                 the blank is the target_term itself, exactly as already described, with no parenthetical infinitive
                 and the full whole-category-ambiguity check still applying.
@@ -237,6 +265,31 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     # would be both unreliable and unnecessary.
     for question, pair in zip(questions, pairs):
         question.vocab_pair_id = pair.get("id")
+
+    # Modal verbs (devoir, pouvoir, ...) occasionally trip the self-collision
+    # bug the prompt above warns against. Retry just the affected pair (up to
+    # _retries_left times) rather than regenerating the whole batch — keeps
+    # the quiz's word selection intact and only spends extra calls when a
+    # question actually needs it.
+    if _retries_left > 0:
+        for i, question in enumerate(questions):
+            if not _answer_duplicated_in_sentence(question):
+                continue
+            try:
+                retried = generate_question_batch(
+                    [pairs[i]],
+                    source_language,
+                    target_language,
+                    1,
+                    level,
+                    verb_tense,
+                    flip,
+                    _retries_left=_retries_left - 1,
+                )
+                questions[i] = retried[0]
+            except GeminiAPIError:
+                pass  # keep the original rather than fail the whole batch
+
     return questions
 
 
