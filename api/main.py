@@ -28,6 +28,7 @@ from data.db import (
     create_quiz_session,
     update_quiz_session,
     get_active_sessions,
+    get_completed_sessions,
     delete_quiz_session,
     delete_stale_completed_sessions,
     get_quiz_history_for_list,
@@ -384,6 +385,13 @@ def route_update_quiz_session(
 def route_get_active_sessions(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
     sessions = get_active_sessions(client, current_user_id)
     return {"sessions": sessions or []}
+
+
+@app.get("/quiz-sessions/completed")
+def route_get_completed_sessions(
+    current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)
+):
+    return {"sessions": get_completed_sessions(client, current_user_id)}
 
 
 @app.delete("/quiz-sessions/{session_id}")

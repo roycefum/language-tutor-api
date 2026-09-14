@@ -348,6 +348,56 @@ def get_quiz_history_for_list(client, list_id, user_id):
     ]
 
 
+def get_completed_sessions(client, user_id):
+    """
+    Fetch every completed quiz session for a user across all their lists
+    (not scoped to one list, unlike get_quiz_history_for_list) — powers a
+    "past quizzes" section on My Quizzes. Ordered newest first, since
+    that's the natural order for a flat activity list (list-history's
+    per-list graph is what wants oldest-first instead).
+    Returns a list of {session_id, list_id, completed_at, correct, total}
+    dicts, possibly empty.
+    """
+    sessions_result = (
+        client.table("quiz_sessions")
+        .select("id, list_id, last_active_at")
+        .eq("user_id", user_id)
+        .eq("status", "completed")
+        .order("last_active_at", desc=True)
+        .execute()
+    )
+    sessions = sessions_result.data
+    if not sessions:
+        return []
+
+    session_ids = [s["id"] for s in sessions]
+    attempts_result = (
+        client.table("quiz_attempts")
+        .select("session_id, was_correct")
+        .in_("session_id", session_ids)
+        .execute()
+    )
+    totals = {}
+    corrects = {}
+    for attempt in attempts_result.data:
+        sid = attempt["session_id"]
+        totals[sid] = totals.get(sid, 0) + 1
+        if attempt["was_correct"]:
+            corrects[sid] = corrects.get(sid, 0) + 1
+
+    return [
+        {
+            "session_id": s["id"],
+            "list_id": s["list_id"],
+            "completed_at": s["last_active_at"],
+            "correct": corrects.get(s["id"], 0),
+            "total": totals.get(s["id"], 0),
+        }
+        for s in sessions
+        if totals.get(s["id"], 0) > 0
+    ]
+
+
 def delete_stale_completed_sessions(client, user_id, days=30):
     """
     Deletes this user's completed quiz sessions whose last_active_at (set
