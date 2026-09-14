@@ -63,4 +63,6 @@ class CreateAttemptRequest(BaseModel):
     question_text: str
     skill_category: str | None
     was_correct: bool
+    user_answer: str
+    correct_answer: str
 

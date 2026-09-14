@@ -338,12 +338,18 @@ def delete_quiz_session(client, session_id, user_id):
 # QUIZ ATTEMPTS — per-word right/wrong history, powers adaptive requizzing
 # ============================================================
 
-def create_quiz_attempt(client, user_id, session_id, vocab_pair_id, question_text, skill_category, was_correct):
+def create_quiz_attempt(
+    client, user_id, session_id, vocab_pair_id, question_text, skill_category, was_correct,
+    user_answer, correct_answer,
+):
     """
     Records one answered (or skipped) question. vocab_pair_id may be None
     (e.g. a question generated from a pair with no id) — still recorded,
     just won't factor into select_quiz_pairs_for_list()'s weighting since
-    that groups by vocab_pair_id.
+    that groups by vocab_pair_id. user_answer/correct_answer are stored
+    (not just was_correct) so a full per-question results view can be
+    reconstructed later, including after resuming a session across app
+    restarts — see get_attempts_for_session().
     """
     client.table("quiz_attempts").insert({
         "user_id": user_id,
@@ -352,7 +358,26 @@ def create_quiz_attempt(client, user_id, session_id, vocab_pair_id, question_tex
         "question_text": question_text,
         "skill_category": skill_category,
         "was_correct": was_correct,
+        "user_answer": user_answer,
+        "correct_answer": correct_answer,
     }).execute()
+
+
+def get_attempts_for_session(client, session_id, user_id):
+    """
+    Fetches every recorded attempt for one quiz session, in the order they
+    were answered — powers the full per-question results table. Scoped to
+    user_id so one user can't read another's session by guessing its id.
+    """
+    result = (
+        client.table("quiz_attempts")
+        .select("question_text, user_answer, correct_answer, was_correct, created_at")
+        .eq("session_id", session_id)
+        .eq("user_id", user_id)
+        .order("created_at")
+        .execute()
+    )
+    return result.data
 
 
 def _dedupe_pairs_by_target(pairs):

@@ -30,6 +30,7 @@ from data.db import (
     delete_list_and_pairs,
     delete_all_user_data,
     create_quiz_attempt,
+    get_attempts_for_session,
     select_quiz_pairs_for_list,
     get_missed_pairs_for_list,
 )
@@ -346,5 +347,17 @@ def route_create_attempt(
         request.question_text,
         request.skill_category,
         request.was_correct,
+        request.user_answer,
+        request.correct_answer,
     )
     return {"status": "recorded"}
+
+
+@app.get("/quiz-sessions/{session_id}/attempts")
+def route_get_session_attempts(
+    session_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    attempts = get_attempts_for_session(client, session_id, current_user_id)
+    return {"attempts": attempts}
