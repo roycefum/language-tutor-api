@@ -6,6 +6,7 @@ from core.question_generator import generate_question_batch, analyze_missed_patt
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
+from core.sample_lists import SAMPLE_CATEGORY_META
 from core.exceptions import GeminiAPIError, AuthError
 from api.schemas import (
     GenerateQuestionsRequest,
@@ -22,6 +23,8 @@ from api.schemas import (
     UpdateListPairsRequest,
     RequestPasswordResetRequest,
     ResetPasswordRequest,
+    UpdateProfileRequest,
+    GenerateSampleListRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import (
@@ -51,6 +54,10 @@ from data.db import (
     get_attempts_for_session,
     select_quiz_pairs_for_list,
     get_missed_pairs_for_list,
+    get_user_profile,
+    upsert_user_profile,
+    generate_and_save_sample_lists,
+    generate_and_save_sample_list,
 )
 
 
@@ -222,6 +229,51 @@ def route_rename_list(
     if not renamed:
         raise HTTPException(status_code=404, detail="List not found")
     return {"status": "renamed"}
+
+
+@app.get("/me/profile")
+def route_get_profile(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
+    profile = get_user_profile(client, current_user_id)
+    return {
+        "learning_source_language": profile["learning_source_language"] if profile else None,
+        "learning_target_language": profile["learning_target_language"] if profile else None,
+    }
+
+
+@app.patch("/me/profile")
+def route_update_profile(
+    request: UpdateProfileRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    # Null learning_target_language beforehand means this is the user's
+    # first time ever setting a learning pair — that's the signal (not a
+    # separate onboarding flag) for whether to also generate starter
+    # sample lists. Changing an already-set pair later is just a
+    # preference update, not a reason to regenerate/duplicate lists.
+    existing = get_user_profile(client, current_user_id)
+    is_first_time = existing is None or existing.get("learning_target_language") is None
+
+    upsert_user_profile(client, current_user_id, request.source_language, request.target_language)
+
+    if is_first_time:
+        generate_and_save_sample_lists(client, current_user_id, request.source_language, request.target_language)
+
+    return {"status": "updated", "generated_sample_lists": is_first_time}
+
+
+@app.post("/sample-lists")
+def route_generate_sample_list(
+    request: GenerateSampleListRequest,
+    current_user_id: str = Depends(get_current_user_id),
+    client=Depends(get_db_client),
+):
+    if request.category not in SAMPLE_CATEGORY_META:
+        raise HTTPException(status_code=400, detail="Unknown sample list category")
+    list_id = generate_and_save_sample_list(
+        client, current_user_id, request.category, request.source_language, request.target_language
+    )
+    return {"list_id": list_id}
 
 
 @app.put("/lists/{list_id}")

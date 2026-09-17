@@ -100,3 +100,14 @@ class UpdateListPairsRequest(BaseModel):
     pairs: list[dict[str, str]]
     list_type: str = "vocab"
 
+
+class UpdateProfileRequest(BaseModel):
+    source_language: str
+    target_language: str
+
+
+class GenerateSampleListRequest(BaseModel):
+    category: str
+    source_language: str
+    target_language: str
+

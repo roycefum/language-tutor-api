@@ -4,6 +4,10 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
+from core.pos_classifier import classify_parts_of_speech
+from core.sample_list_generator import generate_sample_pairs
+from core.sample_lists import SAMPLE_CATEGORY_META
+
 load_dotenv()
 url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_KEY")
@@ -122,7 +126,7 @@ def update_list_pairs(client, list_id, user_id, source, source_language, target_
     }).eq("id", list_id).execute()
 
     delete_vocab_pairs_for_list(client, list_id)
-    insert_vocab_pairs(client, list_id, pairs)
+    insert_vocab_pairs(client, list_id, pairs, target_language)
     return True
 
 
@@ -187,15 +191,33 @@ def delete_list_and_pairs(client, list_id, user_id):
 # VOCAB PAIRS
 # ============================================================
 
-def insert_vocab_pairs(client, list_id, pairs):
+def insert_vocab_pairs(client, list_id, pairs, target_language):
     """
     Bulk-insert a list of vocab pairs for a given list, in a single call.
     Converts from the app's internal shape ({"source word": ..., "target word": ...})
-    to the database's column names (source_term, target_term).
+    to the database's column names (source_term, target_term). Also tags
+    each pair with its part of speech via one batched Gemini call — covers
+    every save regardless of how the list was built (typed, pasted,
+    uploaded), rather than only pairs that happened to go through an AI
+    call already. Best-effort: a classification failure shouldn't ever
+    block saving the list itself, just leave part_of_speech null.
     """
+    parts_of_speech = [None] * len(pairs)
+    try:
+        classified = classify_parts_of_speech([p["target word"] for p in pairs], target_language)
+        if len(classified) == len(pairs):
+            parts_of_speech = classified
+    except Exception:
+        pass
+
     pairs_to_insert = [
-        {"list_id": list_id, "source_term": p["source word"], "target_term": p["target word"]}
-        for p in pairs
+        {
+            "list_id": list_id,
+            "source_term": p["source word"],
+            "target_term": p["target word"],
+            "part_of_speech": pos,
+        }
+        for p, pos in zip(pairs, parts_of_speech)
     ]
     client.table("vocab_pairs").insert(pairs_to_insert).execute()
 
@@ -232,9 +254,75 @@ def save_list(client, user_id, name, source, source_language, target_language, p
         result = create_list(client, user_id, name, source, source_language, target_language, list_type)
         list_id = result["id"]
 
-    insert_vocab_pairs(client, list_id, pairs)
+    insert_vocab_pairs(client, list_id, pairs, target_language)
 
     return list_id
+
+
+# ============================================================
+# USER PROFILE — account-level preferences (currently just the learning
+# language pair, but user_profiles is a general-purpose table so future
+# account-level data has a home without needing a new one-off table).
+# ============================================================
+
+def get_user_profile(client, user_id):
+    """
+    Fetch a user's profile row, or None if they've never set one — that
+    None (or a row with null learning_target_language) is the signal used
+    to force a first-login redirect to Settings and to decide whether
+    saving the learning pair should also trigger sample-list generation.
+    """
+    result = client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+    return result.data[0] if len(result.data) > 0 else None
+
+
+def upsert_user_profile(client, user_id, source_language, target_language):
+    """
+    Creates or updates a user's profile row with their learning language
+    pair. Manual select-then-insert-or-update, matching this codebase's
+    existing pattern (save_list/update_list) rather than relying on
+    postgrest upsert support.
+    """
+    existing = get_user_profile(client, user_id)
+    fields = {
+        "learning_source_language": source_language,
+        "learning_target_language": target_language,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if existing is not None:
+        client.table("user_profiles").update(fields).eq("user_id", user_id).execute()
+    else:
+        client.table("user_profiles").insert({"user_id": user_id, **fields}).execute()
+
+
+def generate_and_save_sample_list(client, user_id, category_key, source_language, target_language):
+    """
+    Generates (via Gemini — see generate_sample_pairs) and saves ONE
+    sample-list category for a language pair. Shared by the first-time
+    bulk generation (all 4 categories, triggered from Settings) and the
+    on-demand single-category catalog in My Lists. Matches the
+    "(Source → Target)" suffix shape the frontend's displayListName()
+    strips for display. Returns the new list's id.
+    """
+    label, list_type = SAMPLE_CATEGORY_META[category_key]
+    pairs = generate_sample_pairs(category_key, source_language, target_language)
+    name = f"{label} ({source_language} → {target_language})"
+    return save_list(client, user_id, name, "sample", source_language, target_language, pairs, list_type=list_type)
+
+
+def generate_and_save_sample_lists(client, user_id, source_language, target_language):
+    """
+    Generates and saves all 4 sample-list categories for a language pair —
+    called once, the first time a user sets their learning pair in
+    Settings. Best-effort per category: if one category's generation
+    fails, the others still get saved rather than the whole batch failing
+    over one Gemini hiccup.
+    """
+    for category_key in SAMPLE_CATEGORY_META:
+        try:
+            generate_and_save_sample_list(client, user_id, category_key, source_language, target_language)
+        except Exception:
+            continue
 
 
 # ============================================================
