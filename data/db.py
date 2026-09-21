@@ -687,3 +687,143 @@ def delete_all_user_data(client, user_id):
     client.table("vocab_lists").delete().eq("user_id", user_id).execute()
     client.table("quiz_sessions").delete().eq("user_id", user_id).execute()
     client.table("quiz_attempts").delete().eq("user_id", user_id).execute()
+
+
+# ============================================================
+# DEBUG SEEDING — fake history for testing feedback features without
+# actually taking quizzes. Only reachable through the /debug/* endpoints,
+# which are off unless ENABLE_DEBUG_ENDPOINTS=true. Every seeded
+# attempt's question_text starts with SEED_MARKER so clear_seeded_data()
+# can remove exactly what was seeded and nothing else.
+# ============================================================
+
+SEED_MARKER = "SEED:"
+
+# Ten questions per session; scores are per-session fractions correct,
+# oldest first. get_trend_feedback() (frontend) compares the average of
+# the first two scores to the last two: >=15 points up = "improving a
+# lot", >=5 up = "improving", within 5 = "steady", down <15 = "declining",
+# else "declining a lot".
+SEED_TREND_SCORES = {
+    "improving_a_lot": [0.4, 0.4, 0.7, 0.7],
+    "improving": [0.5, 0.5, 0.6, 0.6],
+    "steady": [0.6, 0.6, 0.6, 0.6],
+    "declining": [0.7, 0.7, 0.6, 0.6],
+    "declining_a_lot": [0.8, 0.8, 0.5, 0.5],
+}
+
+
+def _insert_seed_session(client, user_id, list_id, days_ago):
+    # Inserted directly (not via create_quiz_session) so status and
+    # last_active_at can be set — history is ordered by last_active_at,
+    # and a trend needs the sessions spread across different days.
+    last_active = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    response = client.table("quiz_sessions").insert({
+        "user_id": user_id,
+        "list_id": list_id,
+        "questions": [{
+            "question_text": f"{SEED_MARKER} placeholder",
+            "correct_answer": "",
+            "skill_category": "seed",
+            "vocab_pair_id": None,
+        }],
+        "current_index": 1,
+        "status": "completed",
+        "last_active_at": last_active,
+    }).execute()
+    return response.data[0]["id"]
+
+
+def seed_missed_words(client, user_id, list_id):
+    """
+    Records 2 wrong answers on each of the list's first 3 distinct words —
+    just over the thresholds (5 wrong attempts, 3 distinct words) that
+    /lists/{id}/quiz-insight requires before it will produce a message.
+    Returns False if the list doesn't exist for this user or has fewer
+    than 3 distinct words.
+    """
+    list_data = get_list_with_pairs(client, list_id, user_id)
+    if list_data is None:
+        return False
+    pairs = _dedupe_pairs_by_target(list_data["pairs"])[:3]
+    if len(pairs) < 3:
+        return False
+
+    session_id = _insert_seed_session(client, user_id, list_id, days_ago=0)
+    rows = [
+        {
+            "user_id": user_id,
+            "session_id": session_id,
+            "vocab_pair_id": p["id"],
+            "question_text": f"{SEED_MARKER} {p['source_term']} #{n}",
+            "skill_category": "seed",
+            "was_correct": False,
+            "user_answer": "wrong",
+            "correct_answer": p["target_term"],
+        }
+        for p in pairs
+        for n in range(2)
+    ]
+    client.table("quiz_attempts").insert(rows).execute()
+    return True
+
+
+def seed_score_history(client, user_id, list_id, trend):
+    """
+    Creates 4 completed quizzes for a list, spread over the last few days,
+    with scores that produce the requested trend (a key of
+    SEED_TREND_SCORES). Every attempt is attached to the list's single
+    first word, so wrong answers pile onto one word and never reach the
+    3-distinct-words threshold — this seeds the Progress screen's trend
+    message without also switching on the missed-words insight.
+    Returns False if the list doesn't exist for this user or is empty.
+    """
+    list_data = get_list_with_pairs(client, list_id, user_id)
+    if list_data is None or not list_data["pairs"]:
+        return False
+    pair = list_data["pairs"][0]
+    scores = SEED_TREND_SCORES[trend]
+
+    for i, score in enumerate(scores):
+        session_id = _insert_seed_session(client, user_id, list_id, days_ago=len(scores) - i)
+        correct_count = round(score * 10)
+        rows = [
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "vocab_pair_id": pair["id"],
+                "question_text": f"{SEED_MARKER} q{n}",
+                "skill_category": "seed",
+                "was_correct": n < correct_count,
+                "user_answer": pair["target_term"] if n < correct_count else "wrong",
+                "correct_answer": pair["target_term"],
+            }
+            for n in range(10)
+        ]
+        client.table("quiz_attempts").insert(rows).execute()
+    return True
+
+
+def clear_seeded_data(client, user_id):
+    """
+    Removes everything seed_missed_words()/seed_score_history() created,
+    identified by SEED_MARKER on the attempts' question_text, plus the
+    sessions those attempts belonged to (every seeded session contains
+    only seeded attempts). Attempts go first so the delete never trips a
+    foreign key. Returns how many attempts were removed.
+    """
+    attempts = (
+        client.table("quiz_attempts")
+        .select("id, session_id")
+        .eq("user_id", user_id)
+        .like("question_text", f"{SEED_MARKER}%")
+        .execute()
+        .data
+    )
+    session_ids = list({a["session_id"] for a in attempts if a["session_id"]})
+    client.table("quiz_attempts").delete().eq("user_id", user_id).like(
+        "question_text", f"{SEED_MARKER}%"
+    ).execute()
+    if session_ids:
+        client.table("quiz_sessions").delete().in_("id", session_ids).eq("user_id", user_id).execute()
+    return len(attempts)

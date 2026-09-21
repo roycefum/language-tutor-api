@@ -111,3 +111,12 @@ class GenerateSampleListRequest(BaseModel):
     source_language: str
     target_language: str
 
+
+
+class DebugSeedMissedWordsRequest(BaseModel):
+    list_id: str
+
+
+class DebugSeedHistoryRequest(BaseModel):
+    list_id: str
+    trend: str
