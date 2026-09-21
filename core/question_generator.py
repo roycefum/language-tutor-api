@@ -351,6 +351,7 @@ def analyze_last_quiz(
     all_pairs: list[dict],
     target_language: str,
     count: int,
+    message_language: str = "English",
 ) -> dict:
     """
     Reads ONE quiz's real answers — what was asked, what the learner typed,
@@ -408,8 +409,9 @@ def analyze_last_quiz(
                 Return:
                 - message: one or two encouraging sentences combining one thing they are doing well (only if the
                   correct answers support it) with what is giving them trouble, ending by noting that the next quiz
-                  will target it. Write the message in {target_language} if a learner at this stage would reasonably
-                  understand it, otherwise in English — clarity matters more than which language it is in.
+                  will target it. Write the message in {message_language} — the language the learner reads the app
+                  in — even though they are studying {target_language}. Quote any {target_language} words or
+                  endings exactly as they are.
                 - evidence_indexes: the "n" numbers of up to 4 items above that best support the pattern you named.
                   Use only numbers that appear above.
                 - focus: ONE sentence telling a question writer which skill to exercise, for example

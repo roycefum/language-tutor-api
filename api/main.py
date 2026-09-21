@@ -325,6 +325,9 @@ MIN_WRONG_ANSWERS_FOR_INSIGHT = 3
 def route_get_quiz_insight(
     list_id: str,
     count: int,
+    # The language the learner reads the app in — the feedback message is
+    # written in this, not in the language they're studying.
+    language: str = "English",
     current_user_id: str = Depends(get_current_user_id),
     client=Depends(get_db_client),
 ):
@@ -337,7 +340,7 @@ def route_get_quiz_insight(
         return {"available": False, "message": None, "examples": [], "focus": None, "targeted_pair_ids": []}
 
     analysis = analyze_last_quiz(
-        wrong, near_misses, correct, data["all_pairs"], data["target_language"], count
+        wrong, near_misses, correct, data["all_pairs"], data["target_language"], count, language
     )
     return {
         "available": True,
