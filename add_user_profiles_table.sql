@@ -15,3 +15,18 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Row-level security: each user can only see and change their own row.
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "read own profile" ON user_profiles
+  FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "create own profile" ON user_profiles
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "update own profile" ON user_profiles
+  FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Policies only filter rows; the role still needs table-level privileges
+-- or every query fails with "permission denied" (42501). Newer Supabase
+-- projects no longer grant these automatically on tables created in SQL.
+GRANT SELECT, INSERT, UPDATE ON public.user_profiles TO authenticated;
