@@ -40,12 +40,6 @@ class TranslationResult(BaseModel):
     pairs: List[VocabPair]
 
 
-class PartOfSpeechResult(BaseModel):
-    # One abbreviated tag per input word (e.g. "v.", "n.", "adj."), in the
-    # same order as given — see classify_parts_of_speech().
-    parts_of_speech: List[str]
-
-
 class WordListTranslation(BaseModel):
     # One translation per input word, same order — see
     # translate_english_word_list() in core/sample_list_generator.py.

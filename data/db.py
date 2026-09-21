@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
-from core.pos_classifier import classify_parts_of_speech
 from core.sample_list_generator import generate_sample_pairs
 from core.sample_lists import SAMPLE_CATEGORY_META
 
@@ -126,7 +125,7 @@ def update_list_pairs(client, list_id, user_id, source, source_language, target_
     }).eq("id", list_id).execute()
 
     delete_vocab_pairs_for_list(client, list_id)
-    insert_vocab_pairs(client, list_id, pairs, target_language)
+    insert_vocab_pairs(client, list_id, pairs)
     return True
 
 
@@ -191,33 +190,15 @@ def delete_list_and_pairs(client, list_id, user_id):
 # VOCAB PAIRS
 # ============================================================
 
-def insert_vocab_pairs(client, list_id, pairs, target_language):
+def insert_vocab_pairs(client, list_id, pairs):
     """
     Bulk-insert a list of vocab pairs for a given list, in a single call.
     Converts from the app's internal shape ({"source word": ..., "target word": ...})
-    to the database's column names (source_term, target_term). Also tags
-    each pair with its part of speech via one batched Gemini call — covers
-    every save regardless of how the list was built (typed, pasted,
-    uploaded), rather than only pairs that happened to go through an AI
-    call already. Best-effort: a classification failure shouldn't ever
-    block saving the list itself, just leave part_of_speech null.
+    to the database's column names (source_term, target_term).
     """
-    parts_of_speech = [None] * len(pairs)
-    try:
-        classified = classify_parts_of_speech([p["target word"] for p in pairs], target_language)
-        if len(classified) == len(pairs):
-            parts_of_speech = classified
-    except Exception:
-        pass
-
     pairs_to_insert = [
-        {
-            "list_id": list_id,
-            "source_term": p["source word"],
-            "target_term": p["target word"],
-            "part_of_speech": pos,
-        }
-        for p, pos in zip(pairs, parts_of_speech)
+        {"list_id": list_id, "source_term": p["source word"], "target_term": p["target word"]}
+        for p in pairs
     ]
     client.table("vocab_pairs").insert(pairs_to_insert).execute()
 
@@ -254,7 +235,7 @@ def save_list(client, user_id, name, source, source_language, target_language, p
         result = create_list(client, user_id, name, source, source_language, target_language, list_type)
         list_id = result["id"]
 
-    insert_vocab_pairs(client, list_id, pairs, target_language)
+    insert_vocab_pairs(client, list_id, pairs)
 
     return list_id
 
