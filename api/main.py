@@ -25,8 +25,6 @@ from api.schemas import (
     ResetPasswordRequest,
     UpdateProfileRequest,
     GenerateSampleListRequest,
-    DebugSeedMissedWordsRequest,
-    DebugSeedHistoryRequest,
 )
 from core.helpers import save_list_if_valid, parse_pasted_list
 from auth.supabase_auth import (
@@ -37,14 +35,7 @@ from auth.supabase_auth import (
     request_password_reset,
     reset_password,
 )
-from api.deps import (
-    get_current_user,
-    get_current_user_id,
-    get_db_client,
-    bearer_scheme,
-    is_admin_user,
-    require_admin,
-)
+from api.deps import get_current_user_id, get_db_client, bearer_scheme
 from data.db import (
     create_quiz_session,
     update_quiz_session,
@@ -67,10 +58,6 @@ from data.db import (
     upsert_user_profile,
     generate_and_save_sample_lists,
     generate_and_save_sample_list,
-    seed_missed_words,
-    seed_score_history,
-    clear_seeded_data,
-    SEED_TREND_SCORES,
 )
 
 
@@ -245,19 +232,11 @@ def route_rename_list(
 
 
 @app.get("/me/profile")
-def route_get_profile(
-    user=Depends(get_current_user),
-    current_user_id: str = Depends(get_current_user_id),
-    client=Depends(get_db_client),
-):
+def route_get_profile(current_user_id: str = Depends(get_current_user_id), client=Depends(get_db_client)):
     profile = get_user_profile(client, current_user_id)
     return {
         "learning_source_language": profile["learning_source_language"] if profile else None,
         "learning_target_language": profile["learning_target_language"] if profile else None,
-        # Computed from the server's ADMIN_EMAILS, never stored — the app
-        # uses this only to decide whether to show the admin tools link;
-        # the /debug routes enforce it themselves regardless.
-        "is_admin": is_admin_user(user),
     }
 
 
@@ -539,41 +518,3 @@ def route_get_session_attempts(
 ):
     attempts = get_attempts_for_session(client, session_id, current_user_id)
     return {"attempts": attempts}
-
-
-# ============================================================
-# DEBUG (admin only) — fake history for testing feedback without taking
-# quizzes. require_admin 404s for everyone whose email isn't listed in the
-# server's ADMIN_EMAILS, so regular users can't reach or discover these.
-# ============================================================
-
-@app.post("/debug/seed-missed-words")
-def route_debug_seed_missed_words(
-    request: DebugSeedMissedWordsRequest,
-    admin_user_id: str = Depends(require_admin),
-    client=Depends(get_db_client),
-):
-    if not seed_missed_words(client, admin_user_id, request.list_id):
-        raise HTTPException(status_code=400, detail="List not found, or it has fewer than 3 distinct words")
-    return {"status": "seeded"}
-
-
-@app.post("/debug/seed-history")
-def route_debug_seed_history(
-    request: DebugSeedHistoryRequest,
-    admin_user_id: str = Depends(require_admin),
-    client=Depends(get_db_client),
-):
-    if request.trend not in SEED_TREND_SCORES:
-        raise HTTPException(status_code=400, detail="Unknown trend")
-    if not seed_score_history(client, admin_user_id, request.list_id, request.trend):
-        raise HTTPException(status_code=400, detail="List not found or empty")
-    return {"status": "seeded"}
-
-
-@app.post("/debug/clear-seeded")
-def route_debug_clear_seeded(
-    admin_user_id: str = Depends(require_admin),
-    client=Depends(get_db_client),
-):
-    return {"status": "cleared", "attempts_removed": clear_seeded_data(client, admin_user_id)}
