@@ -35,8 +35,17 @@ def is_admin_user(user) -> bool:
     profile field, because anything stored where a user's own requests can
     write to it could be flipped by that user. Server environment can't be.
     """
-    allowed = {e.strip().lower() for e in os.getenv("ADMIN_EMAILS", "").split(",") if e.strip()}
-    return bool(user.email) and user.email.lower() in allowed
+    raw = os.getenv("ADMIN_EMAILS")
+    allowed = {e.strip().lower() for e in (raw or "").split(",") if e.strip()}
+    result = bool(user.email) and user.email.lower() in allowed
+    # TEMPORARY diagnostic — remove once admin access is confirmed working.
+    # repr() so stray quotes/whitespace in the Railway value are visible.
+    print(
+        f"[admin-check] caller_email={user.email!r} ADMIN_EMAILS_raw={raw!r} "
+        f"parsed={sorted(allowed)} is_admin={result}",
+        flush=True,
+    )
+    return result
 
 
 def require_admin(user=Depends(get_current_user)) -> str:
