@@ -335,12 +335,12 @@ def route_get_quiz_insight(
     if data is None:
         raise HTTPException(status_code=404, detail="List not found")
 
-    wrong, near_misses, correct = split_quiz_evidence(data["attempts"])
+    wrong, correct = split_quiz_evidence(data["attempts"])
     if len(wrong) < MIN_WRONG_ANSWERS_FOR_INSIGHT:
         return {"available": False, "message": None, "examples": [], "focus": None, "targeted_pair_ids": []}
 
     analysis = analyze_last_quiz(
-        wrong, near_misses, correct, data["all_pairs"], data["target_language"], count, language
+        wrong, correct, data["all_pairs"], data["target_language"], count, language
     )
     return {
         "available": True,

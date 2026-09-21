@@ -51,7 +51,7 @@ class PatternAnalysis(BaseModel):
     # doing well and what pattern is giving them trouble — shown directly
     # to the user on Generate Quiz / Quiz Complete.
     message: str
-    # Numbers ("n") of the mistakes/near-misses the analyzer was shown that
+    # Numbers ("n") of the mistakes the analyzer was shown that
     # best support the pattern it named. The server turns these into
     # "typed -> correct" examples itself rather than trusting the model to
     # quote answers back accurately.

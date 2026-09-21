@@ -314,21 +314,19 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 SKIPPED_ANSWER = "(skipped)"
 
 
-def split_quiz_evidence(attempts: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+def split_quiz_evidence(attempts: list[dict]) -> tuple[list[dict], list[dict]]:
     """
-    Sorts one quiz's recorded attempts into (wrong, near_misses, correct),
-    each item {"question", "typed", "correct"}.
+    Sorts one quiz's recorded attempts into (wrong, correct), each item
+    {"question", "typed", "correct"}.
 
     - wrong: graded incorrect. Skipped questions are left out entirely — a
       skip records no typed answer, so it carries no information about
       what kind of mistake is being made.
-    - near_misses: graded correct, but what was typed differs from the
-      correct spelling — only possible because grading ignores accents and
-      capitalization by default. Kept as separate evidence so an accent
-      problem is still detectable even though it never counted as wrong.
-    - correct: exactly right, useful for naming what the learner is doing well.
+    - correct: graded correct. Answers accepted only because accents were
+      ignored count as correct here too — the quiz accepted them, so the
+      feedback doesn't hold them against the learner.
     """
-    wrong, near_misses, correct = [], [], []
+    wrong, correct = [], []
     for attempt in attempts:
         typed = (attempt.get("user_answer") or "").strip()
         expected = (attempt.get("correct_answer") or "").strip()
@@ -337,16 +335,13 @@ def split_quiz_evidence(attempts: list[dict]) -> tuple[list[dict], list[dict], l
             if typed == SKIPPED_ANSWER:
                 continue
             wrong.append(item)
-        elif typed.lower() != expected.lower():
-            near_misses.append(item)
         else:
             correct.append(item)
-    return wrong, near_misses, correct
+    return wrong, correct
 
 
 def analyze_last_quiz(
     wrong: list[dict],
-    near_misses: list[dict],
     correct: list[dict],
     all_pairs: list[dict],
     target_language: str,
@@ -370,10 +365,7 @@ def analyze_last_quiz(
     The caller is responsible for not calling this on too little evidence
     (see MIN_WRONG_ANSWERS_FOR_INSIGHT in api/main.py).
     """
-    evidence = [{"n": i, "kind": "wrong", **item} for i, item in enumerate(wrong)]
-    evidence += [
-        {"n": len(wrong) + j, "kind": "near-miss", **item} for j, item in enumerate(near_misses)
-    ]
+    evidence = [{"n": i, **item} for i, item in enumerate(wrong)]
     correct_summary = [{"question": c["question"], "answer": c["correct"]} for c in correct[:15]]
     full_list = [
         {"id": p["id"], "source word": p["source_term"], "target word": p["target_term"]}
@@ -382,10 +374,7 @@ def analyze_last_quiz(
 
     prompt = f""" A language learner is studying {target_language}. Below is their MOST RECENT quiz, question by question.
 
-                MISTAKES AND NEAR-MISSES, each with a number "n":
-                - "wrong" means what they typed is different from the correct answer.
-                - "near-miss" means the answer was accepted only because accents and capitalization are ignored,
-                  but what they typed differs from the correct spelling.
+                MISTAKES, each with a number "n" (what they typed differs from the correct answer):
                 {json.dumps(evidence, ensure_ascii=False)}
 
                 QUESTIONS THEY ANSWERED CORRECTLY:
