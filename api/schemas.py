@@ -21,6 +21,10 @@ class GenerateQuestionsRequest(BaseModel):
     # asks for its source-language translation, instead of the normal
     # fill-in-the-blank production direction.
     flip: bool = False
+    # Only set for a "Target My Mistakes" quiz: one sentence describing the
+    # skill the learner is struggling with (from the quiz-insight analysis
+    # of their last quiz), so the questions get written to exercise it.
+    focus: str | None = None
 
 
 class SaveListRequest(BaseModel):

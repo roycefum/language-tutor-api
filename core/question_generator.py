@@ -1,3 +1,4 @@
+import json
 import re
 from google import genai
 from google.genai import types
@@ -99,7 +100,7 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return _repair_question(response.parsed)
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, _retries_left: int = 4) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, focus: str | None = None, _retries_left: int = 4) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
     tense_label = get_tense_label(target_language, verb_tense) if verb_tense else None
@@ -109,6 +110,20 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
         f'{tense_label} for all of them. Still vary the subject/person across questions so they are not all '
         f'identical.'
         if tense_label
+        else ""
+    )
+
+    # Only for a "Target My Mistakes" quiz: steer the questions toward the
+    # skill the learner's last quiz showed them struggling with. Not used in
+    # flip mode (that's a separate, comprehension-only prompt).
+    focus_instruction = (
+        f"""FOCUS FOR THIS QUIZ: this learner is specifically struggling with: {focus}
+                Write the questions so that as many as possible require exactly that skill. For verb pairs, choose the
+                subject and tense that exercise it (this takes precedence over the earlier instruction to vary the
+                subject and tense — but if a specific tense was required above, stay within that tense). For spelling
+                or accent problems, choose forms where it matters. Leave a few questions ordinary so the quiz is not a
+                monotonous drill. Never mention this focus, or the learner's weakness, in any question text."""
+        if focus
         else ""
     )
 
@@ -228,6 +243,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
 
+                {focus_instruction}
+
                 Now write a similar question for target term
                 The question should be a natural sentence phrased to test the user's knowledge of {target_language}
                 Do NOT write the question as a dictionary-style definition of target term.
@@ -284,6 +301,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                     level,
                     verb_tense,
                     flip,
+                    focus,
                     _retries_left=_retries_left - 1,
                 )
                 questions[i] = retried[0]
@@ -293,45 +311,112 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     return questions
 
 
-def analyze_missed_pattern(missed_pairs: list[dict], all_pairs: list[dict], target_language: str, count: int) -> PatternAnalysis:
+SKIPPED_ANSWER = "(skipped)"
+
+
+def split_quiz_evidence(attempts: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
     """
-    Given the words a learner has gotten wrong on a list, asks Gemini to
-    name the actual pattern behind the mistakes (a conjugation class,
-    stem-change type, tense, or other grammatical pattern for verbs — or
-    just note there's no strong pattern for a plain vocab list) and pick
-    `count` pairs from the full list that reinforce that same weak spot.
-    Only meaningful once there's enough wrong-answer history — the caller
-    (select_quiz_pairs_for_list's threshold check) is responsible for not
-    calling this on too little data.
+    Sorts one quiz's recorded attempts into (wrong, near_misses, correct),
+    each item {"question", "typed", "correct"}.
+
+    - wrong: graded incorrect. Skipped questions are left out entirely — a
+      skip records no typed answer, so it carries no information about
+      what kind of mistake is being made.
+    - near_misses: graded correct, but what was typed differs from the
+      correct spelling — only possible because grading ignores accents and
+      capitalization by default. Kept as separate evidence so an accent
+      problem is still detectable even though it never counted as wrong.
+    - correct: exactly right, useful for naming what the learner is doing well.
     """
-    missed = [{"source word": p["source_term"], "target word": p["target_term"]} for p in missed_pairs]
+    wrong, near_misses, correct = [], [], []
+    for attempt in attempts:
+        typed = (attempt.get("user_answer") or "").strip()
+        expected = (attempt.get("correct_answer") or "").strip()
+        item = {"question": attempt.get("question_text") or "", "typed": typed, "correct": expected}
+        if not attempt["was_correct"]:
+            if typed == SKIPPED_ANSWER:
+                continue
+            wrong.append(item)
+        elif typed.lower() != expected.lower():
+            near_misses.append(item)
+        else:
+            correct.append(item)
+    return wrong, near_misses, correct
+
+
+def analyze_last_quiz(
+    wrong: list[dict],
+    near_misses: list[dict],
+    correct: list[dict],
+    all_pairs: list[dict],
+    target_language: str,
+    count: int,
+) -> dict:
+    """
+    Reads ONE quiz's real answers — what was asked, what the learner typed,
+    what was expected — and names what their mistakes have in common, as
+    specifically as the evidence supports (a broad category when that's all
+    the evidence shows, an exact feature like a specific ending or stem
+    change when several mistakes share it, and plainly "no clear pattern"
+    when they don't). Also picks `count` words from the full list that
+    would practice that same pattern, and writes a one-sentence `focus`
+    for the question writer.
+
+    Returns {"message", "examples", "focus", "targeted_pair_ids"}.
+    "examples" are built here from the numbers the model cites, not quoted
+    by the model, so they can't be misremembered.
+
+    The caller is responsible for not calling this on too little evidence
+    (see MIN_WRONG_ANSWERS_FOR_INSIGHT in api/main.py).
+    """
+    evidence = [{"n": i, "kind": "wrong", **item} for i, item in enumerate(wrong)]
+    evidence += [
+        {"n": len(wrong) + j, "kind": "near-miss", **item} for j, item in enumerate(near_misses)
+    ]
+    correct_summary = [{"question": c["question"], "answer": c["correct"]} for c in correct[:15]]
     full_list = [
         {"id": p["id"], "source word": p["source_term"], "target word": p["target_term"]}
         for p in all_pairs
     ]
 
-    prompt = f""" A language learner is studying {target_language} vocabulary. Here are words they have
-                gotten wrong recently: {missed}
+    prompt = f""" A language learner is studying {target_language}. Below is their MOST RECENT quiz, question by question.
 
-                Here is their full vocabulary list to choose from: {full_list}
+                MISTAKES AND NEAR-MISSES, each with a number "n":
+                - "wrong" means what they typed is different from the correct answer.
+                - "near-miss" means the answer was accepted only because accents and capitalization are ignored,
+                  but what they typed differs from the correct spelling.
+                {json.dumps(evidence, ensure_ascii=False)}
 
-                Identify what pattern connects the words they got wrong. For verbs, name the actual
-                grammatical pattern — conjugation class (-ar/-er/-ir), a specific stem-change type
-                (e.g. e→ie, o→ue, e→i), tense, or irregularity — not just "these words." For non-verb
-                vocabulary, or if the mistakes don't share a real pattern, say so plainly instead of
-                inventing one.
+                QUESTIONS THEY ANSWERED CORRECTLY:
+                {json.dumps(correct_summary, ensure_ascii=False)}
 
-                Write one encouraging, specific message combining what they're doing well with what's
-                giving them trouble, and end it by noting this next quiz will target their weak spot.
-                For example: "You're doing well with -ar verbs, but stem-change verbs like e→ie are
-                giving you trouble. This next quiz will target what you're struggling with." Keep it to
-                1-2 sentences. Write the message in {target_language} if a learner at this stage would
-                reasonably understand it, otherwise in English — clarity matters more than which
-                language it's in.
+                Their full vocabulary list, to choose practice words from:
+                {json.dumps(full_list, ensure_ascii=False)}
 
-                Then select {count} pairs (by id) from the full vocabulary list above that would give
-                the learner the most practice on that same weak pattern. If there's no real pattern,
-                just pick a reasonable mix instead.
+                Compare what they typed against the correct answer in each item and work out what the mistakes have
+                in common. Be as specific as the evidence supports, and no more:
+                - If two or more items share a specific feature — a particular ending, a stem change, a tense or
+                  person, an accent on a particular form — name that exact feature (for example "missing the e→ie
+                  stem change in tú forms like tienes", or "leaving the accent off -ábamos endings").
+                - If they share only a broad category (accents in general, conjugation endings in general, noun
+                  gender, spelling), name that broad category.
+                - If the items have nothing meaningful in common, say plainly that you see no clear pattern and
+                  mention the most notable individual slip. Never invent a pattern to sound helpful.
+                Describe what you can SEE ("you wrote X where Y was needed"). Present the underlying cause as likely
+                ("it looks like you're dropping...") — never as established fact.
+
+                Return:
+                - message: one or two encouraging sentences combining one thing they are doing well (only if the
+                  correct answers support it) with what is giving them trouble, ending by noting that the next quiz
+                  will target it. Write the message in {target_language} if a learner at this stage would reasonably
+                  understand it, otherwise in English — clarity matters more than which language it is in.
+                - evidence_indexes: the "n" numbers of up to 4 items above that best support the pattern you named.
+                  Use only numbers that appear above.
+                - focus: ONE sentence telling a question writer which skill to exercise, for example
+                  "present-tense nosotros forms of -ar and -er verbs, where the -amos/-emos ending is required".
+                  Use an empty string if there is no clear pattern.
+                - targeted_pair_ids: the ids of {count} pairs from the full vocabulary list that would give the most
+                  practice on that same pattern. If there is no clear pattern, pick a reasonable mix.
             """
 
     try:
@@ -344,7 +429,22 @@ def analyze_missed_pattern(missed_pairs: list[dict], all_pairs: list[dict], targ
             ),
         )
     except Exception as e:
-        raise GeminiAPIError(f"analyze_missed_pattern failed: {e}") from e
+        raise GeminiAPIError(f"analyze_last_quiz failed: {e}") from e
 
-    return response.parsed
+    analysis = response.parsed
+    seen, examples = set(), []
+    for n in analysis.evidence_indexes:
+        if n in seen or not (0 <= n < len(evidence)):
+            continue
+        seen.add(n)
+        item = evidence[n]
+        examples.append(f"{item['typed']} → {item['correct']}")
+        if len(examples) == 4:
+            break
 
+    return {
+        "message": analysis.message,
+        "examples": examples,
+        "focus": analysis.focus.strip(),
+        "targeted_pair_ids": analysis.targeted_pair_ids,
+    }

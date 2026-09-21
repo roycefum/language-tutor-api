@@ -503,8 +503,7 @@ def create_quiz_attempt(
     """
     Records one answered (or skipped) question. vocab_pair_id may be None
     (e.g. a question generated from a pair with no id) — still recorded,
-    just won't factor into select_quiz_pairs_for_list()'s weighting since
-    that groups by vocab_pair_id. user_answer/correct_answer are stored
+    just isn't tied to a specific word. user_answer/correct_answer are stored
     (not just was_correct) so a full per-question results view can be
     reconstructed later, including after resuming a session across app
     restarts — see get_attempts_for_session().
@@ -559,21 +558,15 @@ def _dedupe_pairs_by_target(pairs):
 
 def select_quiz_pairs_for_list(client, list_id, user_id, count):
     """
-    Picks `count` pairs from a list for a new quiz, weighted toward pairs
-    this user has gotten wrong before — so requizzing the same list leans
-    more and more toward weak words over time. Unattempted pairs still get
-    a baseline weight so they're never excluded entirely.
-
-    weight = 1 + (wrong_count * 3) — a simple first-pass formula: a pair
-    missed 3 times is ~10x more likely to be picked than one always gotten
-    right. Not claiming this is optimal, just a reasonable starting point.
-
-    Returns at most `count` pairs (all of them if count >= the list's
-    size, skipping weighting/sampling entirely since there's nothing to
-    choose between). Returns None if the list doesn't exist for this user
-    (same ownership pattern as get_list_with_pairs — vocab_pairs has no
-    user_id column of its own, so ownership can only be checked via the
-    parent list).
+    Picks `count` pairs from a list for a new quiz — a plain random spread,
+    deliberately unweighted. (An earlier version leaned toward previously
+    missed words; that job now belongs only to the targeted quiz, driven by
+    an analysis of the learner's last quiz — see get_last_quiz_evidence().)
+    Pairs sharing a target word are collapsed first, so one word can't be
+    asked twice. Returns at most `count` pairs (all of them if count >= the
+    list's size). Returns None if the list doesn't exist for this user (same
+    ownership pattern as get_list_with_pairs — vocab_pairs has no user_id
+    column of its own, so ownership can only be checked via the parent list).
     """
     list_result = client.table("vocab_lists").select("id").eq("id", list_id).eq("user_id", user_id).execute()
     if len(list_result.data) == 0:
@@ -581,37 +574,21 @@ def select_quiz_pairs_for_list(client, list_id, user_id, count):
 
     pairs_result = client.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
     pairs = _dedupe_pairs_by_target(pairs_result.data)
-    if not pairs:
-        return []
 
     if count >= len(pairs):
         return pairs
-
-    pair_ids = [p["id"] for p in pairs]
-    attempts_result = (
-        client.table("quiz_attempts")
-        .select("vocab_pair_id, was_correct")
-        .eq("user_id", user_id)
-        .in_("vocab_pair_id", pair_ids)
-        .execute()
-    )
-    wrong_counts = {}
-    for attempt in attempts_result.data:
-        if not attempt["was_correct"]:
-            wrong_counts[attempt["vocab_pair_id"]] = wrong_counts.get(attempt["vocab_pair_id"], 0) + 1
-
-    weights = [1 + wrong_counts.get(p["id"], 0) * 3 for p in pairs]
-    return _weighted_sample_without_replacement(pairs, weights, count)
+    return random.sample(pairs, count)
 
 
-def get_missed_pairs_for_list(client, list_id, user_id):
+def get_last_quiz_evidence(client, list_id, user_id):
     """
-    Fetches everything the "quiz insight" feature needs: this list's full
-    pairs (deduped, ownership-checked) plus which of them the user has
-    gotten wrong before. Returns None if the list doesn't exist for this
-    user. The caller decides whether there's enough wrong-answer signal to
-    bother calling analyze_missed_pattern() — this function just gathers
-    the data.
+    Gathers what the quiz-insight analysis needs: this list's full pairs
+    (deduped, ownership-checked) plus every recorded answer from the most
+    recent COMPLETED quiz on this list. Only that one quiz — the analysis
+    is meant to be fresh each time, not a running all-time tally, so a
+    problem that's been fixed stops being flagged. Returns None if the list
+    doesn't exist for this user; "attempts" is an empty list if the list
+    has no completed quiz yet.
     """
     list_result = (
         client.table("vocab_lists")
@@ -627,46 +604,20 @@ def get_missed_pairs_for_list(client, list_id, user_id):
     pairs_result = client.table("vocab_pairs").select("*").eq("list_id", list_id).execute()
     pairs = _dedupe_pairs_by_target(pairs_result.data)
 
-    wrong_counts = {}
-    pair_ids = [p["id"] for p in pairs]
-    if pair_ids:
-        attempts_result = (
-            client.table("quiz_attempts")
-            .select("vocab_pair_id, was_correct")
-            .eq("user_id", user_id)
-            .in_("vocab_pair_id", pair_ids)
-            .execute()
-        )
-        for attempt in attempts_result.data:
-            if not attempt["was_correct"]:
-                wrong_counts[attempt["vocab_pair_id"]] = wrong_counts.get(attempt["vocab_pair_id"], 0) + 1
+    sessions = (
+        client.table("quiz_sessions")
+        .select("id")
+        .eq("list_id", list_id)
+        .eq("user_id", user_id)
+        .eq("status", "completed")
+        .order("last_active_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    attempts = get_attempts_for_session(client, sessions[0]["id"], user_id) if sessions else []
 
-    missed_pairs = [p for p in pairs if wrong_counts.get(p["id"], 0) > 0]
-
-    return {
-        "target_language": target_language,
-        "all_pairs": pairs,
-        "missed_pairs": missed_pairs,
-        "total_wrong_attempts": sum(wrong_counts.values()),
-    }
-
-
-def _weighted_sample_without_replacement(items, weights, count):
-    """
-    Picks `count` items without replacement, proportional to weight.
-    random.choices() samples WITH replacement, which isn't right here (the
-    same pair could get picked twice for one quiz) — this does the
-    standard trick of drawing one at a time and removing what's picked.
-    """
-    items = list(items)
-    weights = list(weights)
-    selected = []
-    for _ in range(count):
-        chosen = random.choices(items, weights=weights, k=1)[0]
-        index = items.index(chosen)
-        selected.append(items.pop(index))
-        weights.pop(index)
-    return selected
+    return {"target_language": target_language, "all_pairs": pairs, "attempts": attempts}
 
 
 # ============================================================

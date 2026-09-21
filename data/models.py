@@ -47,11 +47,19 @@ class WordListTranslation(BaseModel):
 
 
 class PatternAnalysis(BaseModel):
-    # One encouraging, specific sentence naming what the learner is doing
-    # well and what pattern (e.g. a stem-change type, tense, irregularity)
-    # is giving them trouble — shown directly to the user on Generate Quiz.
+    # One or two encouraging, specific sentences naming what the learner is
+    # doing well and what pattern is giving them trouble — shown directly
+    # to the user on Generate Quiz / Quiz Complete.
     message: str
-    # Pair ids (from the full list) chosen to reinforce that same weak
-    # pattern — used for the "Target My Mistakes" quiz option.
+    # Numbers ("n") of the mistakes/near-misses the analyzer was shown that
+    # best support the pattern it named. The server turns these into
+    # "typed -> correct" examples itself rather than trusting the model to
+    # quote answers back accurately.
+    evidence_indexes: List[int]
+    # One sentence telling the question writer which skill to exercise
+    # (e.g. "present-tense nosotros forms of -ar verbs"). Empty string when
+    # there's no clear pattern.
+    focus: str
+    # Pair ids (from the full list) that would give the most practice on
+    # that pattern — used to pick the words for the targeted quiz.
     targeted_pair_ids: List[str]
-

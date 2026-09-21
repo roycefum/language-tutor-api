@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
-from core.question_generator import generate_question_batch, analyze_missed_pattern
+from core.question_generator import generate_question_batch, analyze_last_quiz, split_quiz_evidence
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
@@ -53,7 +53,7 @@ from data.db import (
     create_quiz_attempt,
     get_attempts_for_session,
     select_quiz_pairs_for_list,
-    get_missed_pairs_for_list,
+    get_last_quiz_evidence,
     get_user_profile,
     upsert_user_profile,
     generate_and_save_sample_lists,
@@ -305,20 +305,20 @@ def route_select_quiz_pairs(
     current_user_id: str = Depends(get_current_user_id),
     client=Depends(get_db_client),
 ):
-    # Weighted toward previously-wrong pairs for this user — see
-    # select_quiz_pairs_for_list()'s docstring for the weighting formula.
-    # This is what makes requizzing the same list "get smarter" over time.
+    # A plain random spread, no weighting — see select_quiz_pairs_for_list().
+    # (Server-side rather than sampled on the phone so a just-saved list's
+    # pairs still come back with their database ids, which quiz attempts
+    # are recorded against.)
     pairs = select_quiz_pairs_for_list(client, list_id, current_user_id, count)
     if pairs is None:
         raise HTTPException(status_code=404, detail="List not found")
     return {"pairs": pairs}
 
 
-# Minimum wrong-answer signal before bothering with a Gemini call to find a
-# pattern — below this there's not enough data for a meaningful pattern,
-# and it'd just be spending a call to say "not sure yet."
-MIN_WRONG_ATTEMPTS_FOR_INSIGHT = 5
-MIN_DISTINCT_MISSED_WORDS_FOR_INSIGHT = 3
+# Minimum wrong answers in the last quiz before bothering with a Gemini call
+# to find a pattern — fewer than this isn't enough to tell a pattern from a
+# couple of unrelated slips.
+MIN_WRONG_ANSWERS_FOR_INSIGHT = 3
 
 
 @app.get("/lists/{list_id}/quiz-insight")
@@ -328,23 +328,23 @@ def route_get_quiz_insight(
     current_user_id: str = Depends(get_current_user_id),
     client=Depends(get_db_client),
 ):
-    data = get_missed_pairs_for_list(client, list_id, current_user_id)
+    data = get_last_quiz_evidence(client, list_id, current_user_id)
     if data is None:
         raise HTTPException(status_code=404, detail="List not found")
 
-    if (
-        len(data["missed_pairs"]) < MIN_DISTINCT_MISSED_WORDS_FOR_INSIGHT
-        or data["total_wrong_attempts"] < MIN_WRONG_ATTEMPTS_FOR_INSIGHT
-    ):
-        return {"available": False, "message": None, "targeted_pair_ids": []}
+    wrong, near_misses, correct = split_quiz_evidence(data["attempts"])
+    if len(wrong) < MIN_WRONG_ANSWERS_FOR_INSIGHT:
+        return {"available": False, "message": None, "examples": [], "focus": None, "targeted_pair_ids": []}
 
-    analysis = analyze_missed_pattern(
-        data["missed_pairs"], data["all_pairs"], data["target_language"], count
+    analysis = analyze_last_quiz(
+        wrong, near_misses, correct, data["all_pairs"], data["target_language"], count
     )
     return {
         "available": True,
-        "message": analysis.message,
-        "targeted_pair_ids": analysis.targeted_pair_ids,
+        "message": analysis["message"],
+        "examples": analysis["examples"],
+        "focus": analysis["focus"] or None,
+        "targeted_pair_ids": analysis["targeted_pair_ids"],
     }
 
 
@@ -427,7 +427,8 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.batch_size,
         request.level,
         request.verb_tense,
-        request.flip
+        request.flip,
+        request.focus,
     )
     return result
 
