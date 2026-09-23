@@ -46,3 +46,14 @@ def get_tense_label(target_language, tense_value):
         if tense["value"] == tense_value:
             return tense["label"]
     return None
+
+
+def get_tense_labels(target_language, tense_values):
+    """
+    Same as get_tense_label but for a list of tense values (the tense
+    selector allows choosing more than one) — resolves each to its label,
+    silently dropping any that don't match a known tense for this
+    language, in the same order they were given.
+    """
+    labels = [get_tense_label(target_language, value) for value in tense_values]
+    return [label for label in labels if label is not None]

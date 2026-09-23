@@ -329,23 +329,29 @@ def generate_and_save_sample_lists(client, user_id, source_language, target_lang
 # QUIZ SESSIONS — persisted, resumable quiz progress
 # ============================================================
 
-def create_quiz_session(client, user_id, list_id, questions, verb_tense=None):
+def create_quiz_session(client, user_id, list_id, questions, verb_tenses=None):
     """
     Start a new quiz session: stores the full set of AI-generated questions
     (converted from Pydantic Question objects to plain dicts via
     .model_dump(), since they're stored as JSON) along with which list
     they belong to. current_index, status, created_at, and last_active_at
     all use their column defaults (0, "in_progress", now(), now()).
-    verb_tense records which tense (if any) was selected on Generate Quiz —
-    None for vocab lists or a "Mixed" tense pick — purely informational, so
-    My Quizzes can show what a resumable verb quiz is actually testing.
+
+    verb_tenses records which tense(s) (if any) were selected on Generate
+    Quiz — empty/None for vocab lists — purely informational, so My
+    Quizzes can show what a resumable verb quiz is actually testing.
+    Joined into a single comma-separated string for the existing
+    verb_tense text column rather than needing a schema change for what's
+    still just one piece of information (which tenses this session
+    covers) — a single selected tense round-trips as a one-item list,
+    same as before this was ever a list at all.
     Returns the new session's id, needed for all subsequent progress updates.
     """
     response = client.table("quiz_sessions").insert({
         "user_id": user_id,
         "list_id": list_id,
         "questions": [q.model_dump() for q in questions],
-        "verb_tense": verb_tense,
+        "verb_tense": ",".join(verb_tenses) if verb_tenses else None,
     }).execute()
     return response.data[0]["id"]
 

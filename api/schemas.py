@@ -13,10 +13,11 @@ class GenerateQuestionsRequest(BaseModel):
     target_language: str
     batch_size: int
     level: str = DEFAULT_CEFR_LEVEL
-    # Only meaningful for verb-shaped pairs (see core/tenses.py) — a
-    # specific tense to conjugate every verb pair in, instead of the
-    # default of varying subject/tense freely across the batch.
-    verb_tense: str | None = None
+    # Only meaningful for verb-shaped pairs (see core/tenses.py) — one or
+    # more tenses to conjugate every verb pair across, instead of the
+    # default of varying subject/tense freely. A single tense means
+    # "always this one"; more than one means "spread across these."
+    verb_tenses: list[str] = []
     # Vocab-only reversed-direction mode: shows the target-language word and
     # asks for its source-language translation, instead of the normal
     # fill-in-the-blank production direction.
@@ -28,8 +29,8 @@ class GenerateQuestionsRequest(BaseModel):
     # "vocab" or "verb" — decides which prompt this batch uses. A verb-
     # shaped pair ("to walk"/"caminar") is tested as an ordinary word in a
     # vocab list (bare infinitive, no conjugation) and conjugated in a verb
-    # list; verb_tense alone can't tell these apart, since it's null for
-    # both a vocab list and a verb list set to "Mixed".
+    # list; verb_tenses alone can't tell these apart, since a vocab list
+    # never sends any tenses at all.
     list_type: str = "vocab"
 
 
@@ -68,7 +69,11 @@ class ResetPasswordRequest(BaseModel):
 class CreateQuizSessionRequest(BaseModel):
     list_id: str
     questions: list[Question]
-    verb_tense: str | None = None
+    # Stored as a comma-joined string in the existing verb_tense column
+    # (see create_quiz_session) rather than needing a schema change to the
+    # column itself — a list of one behaves exactly like the old single-
+    # tense value did.
+    verb_tenses: list[str] = []
 
 
 class UpdateQuizSessionRequest(BaseModel):

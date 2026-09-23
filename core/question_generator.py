@@ -8,7 +8,7 @@ from typing import List
 from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
-from core.tenses import get_tense_label, TENSES_BY_LANGUAGE
+from core.tenses import get_tense_labels
 
 load_dotenv()
 client = genai.Client()
@@ -130,35 +130,38 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return _repair_question(response.parsed)
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, focus: str | None = None, list_type: str = "vocab", _retries_left: int = 4) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tenses: list[str] | None = None, flip: bool = False, focus: str | None = None, list_type: str = "vocab", _retries_left: int = 4) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
-    tense_label = get_tense_label(target_language, verb_tense) if verb_tense else None
-    if tense_label:
+    # One tense selected behaves like the old "specific tense" mode; more
+    # than one behaves like the old "Mixed" mode (which used to mean ALL
+    # tenses, unconditionally) — both are really the same instruction,
+    # "conjugate within this set," just with a set of size 1 or more, so
+    # there's no need for them to be two separate code paths.
+    tense_labels = get_tense_labels(target_language, verb_tenses or [])
+    if len(tense_labels) == 1:
         tense_instruction = (
             f'For every VERB pair in this batch (see the Verb conjugation guidance below), conjugate it '
-            f'specifically in the {tense_label} — do not vary the tense for verb pairs in this batch, use '
-            f'{tense_label} for all of them. Still vary the subject/person across questions so they are not all '
+            f'specifically in the {tense_labels[0]} — do not vary the tense for verb pairs in this batch, use '
+            f'{tense_labels[0]} for all of them. Still vary the subject/person across questions so they are not all '
             f'identical.'
         )
-    else:
-        # "Mixed" (verb_tense is None) — without an explicit menu, the model
-        # left to "vary the tense" on its own defaults to whichever tenses
-        # are most common in ordinary writing (present and future), so a
-        # mixed-tense quiz was never actually landing on the others.
-        # Naming every available tense/mood, the same way get_tense_label
-        # would for one specific tense, fixes that the same way the earlier
-        # verb-conjugation and parenthetical fixes did: give the model the
-        # concrete list instead of a vague instruction.
-        available_tenses = [tense["label"] for tense in TENSES_BY_LANGUAGE.get(target_language, [])]
+    elif len(tense_labels) > 1:
+        # Without an explicit menu, the model left to "vary the tense" on
+        # its own defaults to whichever tenses are most common in ordinary
+        # writing (present and future), so a multi-tense quiz was never
+        # actually landing on the others. Naming exactly the chosen tenses,
+        # the same way a single selection names its one tense, fixes that
+        # the same way the earlier verb-conjugation and parenthetical
+        # fixes did: give the model the concrete list instead of a vague
+        # instruction.
         tense_instruction = (
             f'For every VERB pair in this batch (see the Verb conjugation guidance below), spread the questions '
-            f'across a genuine MIX of tenses/moods — draw from: {", ".join(available_tenses)}. Do not let more '
-            f'than about a third of this batch\'s verb questions land on any single tense; present and future are '
-            f'just two options among several here, not the default to fall back on.'
-            if available_tenses
-            else ""
+            f'across these selected tenses/moods — draw from: {", ".join(tense_labels)}. Do not let more than '
+            f'about a third of this batch\'s verb questions land on any single one of them.'
         )
+    else:
+        tense_instruction = ""
 
     # Only for a "Target My Mistakes" quiz: steer the questions toward the
     # skill the learner's last quiz showed them struggling with. Not used in
@@ -237,7 +240,19 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                    no exceptions — since the infinitive is given directly, the sentence doesn't need any other clue
                    about which verb it is. It only needs to make the intended SUBJECT and TENSE clear enough to
                    determine the one correct conjugated form (an explicit pronoun or name, a time marker like
-                   "ayer"/"mañana"/"todos los días", or clear context).
+                   "ayer"/"todos los días"/"el año que viene", or clear context) — but the marker must point to
+                   ONLY the tense you picked, not double as a natural fit for a different tense too. Some time
+                   words are genuinely ambiguous this way: "mañana" ("tomorrow") is used naturally with BOTH the
+                   future ("Mañana saldremos temprano") and the present, for a planned near-future action ("Mañana
+                   salimos temprano") — a learner answering with either tense would be correct, which makes the
+                   question unscoreable. Before finalizing, check whether a different tense could also sound
+                   natural with the same sentence and marker; if so, either pick a marker that rules that out
+                   (a habitual marker like "todos los días" only fits present; "ayer" only fits a past tense) or
+                   add unambiguous context elsewhere in the sentence. This matters most for verbs whose conjugated
+                   form is itself identical across two tenses for a given subject (e.g. -ir verbs' nosotros form is
+                   spelled the same in the present and the preterite, like "salimos") — for those, the sentence's
+                   own context has to be the only thing settling which tense is intended, since the word itself
+                   can't.
                 5. Vary the subject and tense across the different verb questions in this batch rather than
                    defaulting to the same person/tense every time — this is what makes a requiz of the same verb
                    list actually test different conjugations over time. {tense_instruction}
@@ -381,7 +396,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                     target_language,
                     1,
                     level,
-                    verb_tense,
+                    verb_tenses,
                     flip,
                     focus,
                     list_type,

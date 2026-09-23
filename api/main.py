@@ -432,7 +432,7 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.target_language,
         request.batch_size,
         request.level,
-        request.verb_tense,
+        request.verb_tenses,
         request.flip,
         request.focus,
         request.list_type,
@@ -451,7 +451,7 @@ def route_create_quiz_session(
     client=Depends(get_db_client),
 ):
     session_id = create_quiz_session(
-        client, current_user_id, request.list_id, request.questions, request.verb_tense
+        client, current_user_id, request.list_id, request.questions, request.verb_tenses
     )
     return {"session_id": session_id}
 
