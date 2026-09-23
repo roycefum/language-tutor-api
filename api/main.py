@@ -8,6 +8,7 @@ from core.language_detector import detect_languages
 from core.translator import translate_word_list
 from core.sample_lists import SAMPLE_CATEGORY_META
 from core.exceptions import GeminiAPIError, AuthError
+from data.models import VocabListMeta
 from api.schemas import (
     GenerateQuestionsRequest,
     SaveListRequest,
@@ -175,16 +176,18 @@ def route_save_list(
     current_user_id: str = Depends(get_current_user_id),
     client=Depends(get_db_client),
 ):
-    list_id = save_list_if_valid(
-        client,
-        current_user_id,
-        request.name,
-        request.source,
-        request.source_language,
-        request.target_language,
-        request.pairs,
-        request.list_type
+    # Not request itself — SaveListRequest also carries pairs, and
+    # VocabListMeta.model_dump() (used by create_list/update_list to build
+    # the insert/update payload) would then include a "pairs" key that
+    # doesn't belong in the vocab_lists table.
+    meta = VocabListMeta(
+        name=request.name,
+        source=request.source,
+        source_language=request.source_language,
+        target_language=request.target_language,
+        list_type=request.list_type,
     )
+    list_id = save_list_if_valid(client, current_user_id, meta, request.pairs)
     return {"list_id": list_id}
 
 

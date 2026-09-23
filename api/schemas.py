@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from fastapi import FastAPI
 from core.question_generator import generate_question_batch
 from core.cefr import DEFAULT_CEFR_LEVEL
-from data.models import Question
+from data.models import Question, VocabListMeta
 
 
 
@@ -33,13 +33,12 @@ class GenerateQuestionsRequest(BaseModel):
     list_type: str = "vocab"
 
 
-class SaveListRequest(BaseModel):
-    name: str
-    source: str
-    source_language: str
-    target_language: str
+class SaveListRequest(VocabListMeta):
+    # Inherits name/source/source_language/target_language/list_type from
+    # VocabListMeta — the same metadata cluster save_list() itself takes —
+    # so the request IS a VocabListMeta and can be passed straight through
+    # without re-listing these fields or reconstructing the object.
     pairs: list[dict]
-    list_type: str = "vocab"
 
 
 class SignUpRequest(BaseModel):

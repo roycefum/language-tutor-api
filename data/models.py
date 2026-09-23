@@ -46,6 +46,23 @@ class WordListTranslation(BaseModel):
     translated_words: List[str]
 
 
+class VocabListMeta(BaseModel):
+    """
+    The metadata cluster that used to travel as 4-5 separate positional
+    parameters through create_list/update_list/save_list and the
+    /save-list API schema — name, source, and the language pair are what
+    identifies a list; list_type is stored alongside them. Bundling them
+    here means a function taking a VocabListMeta can't have its fields
+    passed in the wrong order, and model_dump() hands back exactly the
+    dict these functions already needed to build for an insert/update.
+    """
+    name: str
+    source: str
+    source_language: str
+    target_language: str
+    list_type: str = "vocab"
+
+
 class PatternAnalysis(BaseModel):
     # One or two encouraging, specific sentences naming what the learner is
     # doing well and what pattern is giving them trouble — shown directly

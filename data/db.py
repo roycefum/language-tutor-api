@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from core.sample_list_generator import generate_sample_pairs
 from core.sample_lists import SAMPLE_CATEGORY_META
+from data.models import VocabListMeta
 
 load_dotenv()
 url = os.getenv("SUPABASE_URL")
@@ -37,14 +38,32 @@ def get_authed_client(access_token) -> Client:
 # VOCAB LISTS — read
 # ============================================================
 
-def find_list_by_name(client, user_id, name):
+def find_list(client, user_id, meta: VocabListMeta):
     """
-    Look up a single vocab list belonging to this user, by exact name match.
-    Used by save_list() to decide whether to create a new list or update
-    an existing one with the same name.
+    Look up a single vocab list belonging to this user, by name AND
+    language pair together — not name alone. Used by save_list() to decide
+    whether to create a new list or update an existing one.
+
+    Matching on name alone used to mean two lists that should be allowed to
+    share a name (e.g. a "Common Verbs" sample list for Spanish and another
+    for French) had to be given artificially different names instead
+    ("Common Verbs (English → Spanish)" vs "... (English → French)") to
+    avoid colliding — the language pair columns already exist and already
+    say what a suffix like that was manually re-stating in the name
+    itself. Matching on all three means the name can just be "Common
+    Verbs" for both.
+
     Returns the matching row (dict) if found, or None if no match.
     """
-    result = client.table("vocab_lists").select("*").eq("user_id", user_id).eq("name", name).execute()
+    result = (
+        client.table("vocab_lists")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("name", meta.name)
+        .eq("source_language", meta.source_language)
+        .eq("target_language", meta.target_language)
+        .execute()
+    )
     if len(result.data) > 0:
         return result.data[0]
     else:
@@ -55,7 +74,7 @@ def find_list_by_name(client, user_id, name):
 # VOCAB LISTS — create / update / delete
 # ============================================================
 
-def create_list(client, user_id, name, source, source_language, target_language, list_type="vocab"):
+def create_list(client, user_id, meta: VocabListMeta):
     """
     Insert a brand-new vocab_lists row. Does NOT insert the actual vocab
     pairs — that's a separate step (see insert_vocab_pairs). id, created_at,
@@ -65,29 +84,19 @@ def create_list(client, user_id, name, source, source_language, target_language,
     """
     response = client.table("vocab_lists").insert({
         "user_id": user_id,
-        "name": name,
-        "source": source,
-        "source_language": source_language,
-        "target_language": target_language,
-        "list_type": list_type
+        **meta.model_dump(),
     }).execute()
 
     return response.data[0]
 
 
-def update_list(client, list_id, name, source, source_language, target_language, list_type="vocab"):
+def update_list(client, list_id, meta: VocabListMeta):
     """
     Update an existing vocab_lists row's metadata (name, source, languages,
     list_type). last_modified updates automatically via the moddatetime
     trigger — no need to set it here.
     """
-    client.table("vocab_lists").update({
-        "name": name,
-        "source": source,
-        "source_language": source_language,
-        "target_language": target_language,
-        "list_type": list_type
-    }).eq("id", list_id).execute()
+    client.table("vocab_lists").update(meta.model_dump()).eq("id", list_id).execute()
 
 
 def rename_list(client, list_id, user_id, name):
@@ -216,23 +225,23 @@ def delete_vocab_pairs_for_list(client, list_id):
 # ORCHESTRATION — create-or-update a full list in one call
 # ============================================================
 
-def save_list(client, user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
+def save_list(client, user_id, meta: VocabListMeta, pairs):
     """
     The single entry point for saving a vocab list. Checks whether a list
-    with this name already exists for this user:
+    with this name AND language pair already exists for this user:
       - if yes: updates its metadata, wipes its old pairs, inserts the new set
       - if no: creates a brand-new list, then inserts its pairs
     This is what UI code should call directly, rather than the individual
     create/update/insert functions above.
     """
-    existing = find_list_by_name(client, user_id, name)
+    existing = find_list(client, user_id, meta)
 
     if existing is not None:
         list_id = existing["id"]
-        update_list(client, list_id, name, source, source_language, target_language, list_type)
+        update_list(client, list_id, meta)
         delete_vocab_pairs_for_list(client, list_id)
     else:
-        result = create_list(client, user_id, name, source, source_language, target_language, list_type)
+        result = create_list(client, user_id, meta)
         list_id = result["id"]
 
     insert_vocab_pairs(client, list_id, pairs)
@@ -281,14 +290,24 @@ def generate_and_save_sample_list(client, user_id, category_key, source_language
     Generates (via Gemini — see generate_sample_pairs) and saves ONE
     sample-list category for a language pair. Shared by the first-time
     bulk generation (all 4 categories, triggered from Settings) and the
-    on-demand single-category catalog in My Lists. Matches the
-    "(Source → Target)" suffix shape the frontend's displayListName()
-    strips for display. Returns the new list's id.
+    on-demand single-category catalog in My Lists.
+
+    The plain category label (e.g. "Common Verbs") is the name — no
+    language-pair suffix needed, since save_list()/find_list() already
+    disambiguate by name AND language pair together, so the same label can
+    be reused across every language pair without colliding. Returns the
+    new list's id.
     """
     label, list_type = SAMPLE_CATEGORY_META[category_key]
     pairs = generate_sample_pairs(category_key, source_language, target_language)
-    name = f"{label} ({source_language} → {target_language})"
-    return save_list(client, user_id, name, "sample", source_language, target_language, pairs, list_type=list_type)
+    meta = VocabListMeta(
+        name=label,
+        source="sample",
+        source_language=source_language,
+        target_language=target_language,
+        list_type=list_type,
+    )
+    return save_list(client, user_id, meta, pairs)
 
 
 def generate_and_save_sample_lists(client, user_id, source_language, target_language):

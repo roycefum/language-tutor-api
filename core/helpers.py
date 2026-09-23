@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from data.db import save_list
+from data.models import VocabListMeta
 
 BULLET_PREFIX_RE = re.compile(r"^\s*(?:[-*•‣▪·]|\d+[.)])\s+")
 
@@ -94,10 +95,10 @@ def remove_accents(text):
     return ''.join(char for char in normalized if not unicodedata.combining(char))
 
 
-def save_list_if_valid(client, user_id, name, source, source_language, target_language, pairs, list_type="vocab"):
+def save_list_if_valid(client, user_id, meta: VocabListMeta, pairs):
     """
     Thin wrapper around data.db.save_list(). Kept as its own function so
     API routes have one consistent entry point for saving a list, matching
     the naming/shape used elsewhere in the codebase.
     """
-    return save_list(client, user_id, name, source, source_language, target_language, pairs, list_type)
+    return save_list(client, user_id, meta, pairs)
