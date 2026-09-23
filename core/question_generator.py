@@ -8,7 +8,7 @@ from typing import List
 from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
-from core.tenses import get_tense_label
+from core.tenses import get_tense_label, TENSES_BY_LANGUAGE
 
 load_dotenv()
 client = genai.Client()
@@ -47,6 +47,36 @@ def _answer_duplicated_in_sentence(question):
     if not answer:
         return False
     return re.search(rf"\b{re.escape(answer)}\b", sentence, re.IGNORECASE) is not None
+
+
+# A pair counts as a VERB pair by the same rule the prompt itself uses:
+# either side starting with "to " (e.g. "to walk"). Mirrors the prompt's own
+# "Verb conjugation" section — kept in sync with it by hand, not derived
+# from it, so a future prompt wording change needs both updated.
+def _verb_infinitive(pair):
+    target = pair["target word"].strip()
+    return target[3:].strip() if target.lower().startswith("to ") else target
+
+
+# Two mechanical checks on top of the model actually following its own
+# verb-prompt instructions (steps 3 and 4) — both feed the same per-pair
+# retry below rather than being patched after the fact: the infinitive
+# check can't be safely auto-corrected (conjugating a verb ourselves would
+# need real grammar knowledge we don't have in code), and the parenthetical,
+# even though it could be appended as text, is retried too so a batch never
+# ends up with a blindly-appended infinitive next to one the model already
+# wrote wrong. Only meaningful for a Verb list — the caller gates on
+# list_type, since a Vocab list's pair legitimately answers with the bare
+# infinitive and has no parenthetical at all; that's correct there, not a
+# bug.
+def _verb_answer_is_bare_infinitive(question, pair):
+    infinitive = _verb_infinitive(pair).lower()
+    answer = question.correct_answer.strip().lower()
+    return bool(infinitive) and answer == infinitive
+
+
+def _verb_parenthetical_missing(question):
+    return _TRAILING_PAREN_RE.search(question.question_text) is None
 
 def question_generator (source_term: str, target_term: str, source_language: str, target_language:str) -> Question:
 
@@ -100,18 +130,35 @@ def question_generator (source_term: str, target_term: str, source_language: str
     return _repair_question(response.parsed)
 
 
-def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, focus: str | None = None, _retries_left: int = 4) -> QuestionBatch:
+def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tense: str | None = None, flip: bool = False, focus: str | None = None, list_type: str = "vocab", _retries_left: int = 4) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
     tense_label = get_tense_label(target_language, verb_tense) if verb_tense else None
-    tense_instruction = (
-        f'For every VERB pair in this batch (see the Verb conjugation guidance below), conjugate it '
-        f'specifically in the {tense_label} — do not vary the tense for verb pairs in this batch, use '
-        f'{tense_label} for all of them. Still vary the subject/person across questions so they are not all '
-        f'identical.'
-        if tense_label
-        else ""
-    )
+    if tense_label:
+        tense_instruction = (
+            f'For every VERB pair in this batch (see the Verb conjugation guidance below), conjugate it '
+            f'specifically in the {tense_label} — do not vary the tense for verb pairs in this batch, use '
+            f'{tense_label} for all of them. Still vary the subject/person across questions so they are not all '
+            f'identical.'
+        )
+    else:
+        # "Mixed" (verb_tense is None) — without an explicit menu, the model
+        # left to "vary the tense" on its own defaults to whichever tenses
+        # are most common in ordinary writing (present and future), so a
+        # mixed-tense quiz was never actually landing on the others.
+        # Naming every available tense/mood, the same way get_tense_label
+        # would for one specific tense, fixes that the same way the earlier
+        # verb-conjugation and parenthetical fixes did: give the model the
+        # concrete list instead of a vague instruction.
+        available_tenses = [tense["label"] for tense in TENSES_BY_LANGUAGE.get(target_language, [])]
+        tense_instruction = (
+            f'For every VERB pair in this batch (see the Verb conjugation guidance below), spread the questions '
+            f'across a genuine MIX of tenses/moods — draw from: {", ".join(available_tenses)}. Do not let more '
+            f'than about a third of this batch\'s verb questions land on any single tense; present and future are '
+            f'just two options among several here, not the default to fall back on.'
+            if available_tenses
+            else ""
+        )
 
     # Only for a "Target My Mistakes" quiz: steer the questions toward the
     # skill the learner's last quiz showed them struggling with. Not used in
@@ -162,6 +209,63 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 Do not include source_term anywhere in the question_text itself — the sentence must be entirely in
                 {target_language}, with only the bracketed target_term as the word being tested.
             """
+    elif list_type == "verb":
+        # A Verb list is, by definition, entirely verb pairs — every pair
+        # gets conjugated, unconditionally, unlike a Vocab list where a
+        # verb-shaped entry is tested as an ordinary word (see the vocab
+        # branch below). Kept as its own prompt, not a section bolted onto
+        # the vocab one, so it isn't diluted by — or diluting — the
+        # category-ambiguity framework that only applies to vocab.
+        prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term". The source term (the first term) is in
+                {source_language} — the language the user already knows. The target term (the second term) is in {target_language} — the language the user is learning.
+                Every pair in this list is a verb.
+
+                Write a batch of {batch_size} fill-in-the-blank questions, one per pair, in the same order, testing
+                whether the learner can conjugate each verb — not just recall its infinitive. For each pair:
+
+                1. Find the bare infinitive to conjugate: if target_term begins with "to ", strip that "to " to get
+                   it (e.g. "to walk" → "walk"); otherwise target_term is already the bare infinitive (e.g.
+                   "caminar", a Spanish/French infinitive needs no stripping).
+                2. Pick a natural subject (a pronoun, a name, or a noun) and a tense/mood appropriate to the
+                   complexity level below, then conjugate the infinitive for that subject and tense in
+                   {target_language} (e.g. "caminar" + "ella" + preterite → "caminó").
+                3. Make that specific conjugated form — not the infinitive — both the blank and the correct_answer
+                   for this question. Never use the bare infinitive as the answer; that tests recall, not
+                   conjugation, which is the entire point of a verb quiz.
+                4. After the sentence, append the bare infinitive in parentheses, e.g. "Ayer, mi hermano ___ cinco
+                   millas. (caminar)". This parenthetical is required on every single question in this batch, with
+                   no exceptions — since the infinitive is given directly, the sentence doesn't need any other clue
+                   about which verb it is. It only needs to make the intended SUBJECT and TENSE clear enough to
+                   determine the one correct conjugated form (an explicit pronoun or name, a time marker like
+                   "ayer"/"mañana"/"todos los días", or clear context).
+                5. Vary the subject and tense across the different verb questions in this batch rather than
+                   defaulting to the same person/tense every time — this is what makes a requiz of the same verb
+                   list actually test different conjugations over time. {tense_instruction}
+
+                {cefr_guidance}
+                This complexity guidance applies to the sentence surrounding the blank and the choice of
+                subject/tense, not to which verb is being tested — that's fixed by the pair.
+
+                Modal/semi-auxiliary verbs (e.g. devoir, pouvoir, vouloir, savoir, and their equivalents in other
+                languages) are typically followed by an infinitive complement to form a natural sentence (e.g. "j'ai
+                dû finir mes dossiers" — "finir" is the complement, not the tested word). When target_term is such a
+                verb: the blank and correct_answer must be ONLY the conjugated form of target_term itself. Any
+                infinitive complement the sentence needs must be a DIFFERENT verb, written out normally, NOT left as
+                a second blank and NOT filled with another form of target_term. Never let any form of target_term
+                (conjugated, participle, or infinitive) appear anywhere in the sentence outside the one blank it
+                belongs in — a sentence like "j'ai dû ___ de l'argent (devoir)" where the blank is also meant to be
+                "dû" is wrong twice over: it repeats the already-visible "j'ai dû" and leaves no real infinitive
+                complement.
+
+                CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
+                Do not write any question in {source_language}. Double-check each question before finalizing.
+
+                {focus_instruction}
+
+                Now write a similar question for target term, following the conjugation steps above exactly. Use
+                "_____" to mark where the blank goes — the blank and correct_answer are the specific conjugated form,
+                never the bare infinitive. Do not use source_term in the question text.
+            """
     else:
         prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
                 {source_language}. This is the language that the user already knows. The target term (the second term) is in the {target_language}. This is the
@@ -176,7 +280,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 This complexity guidance applies to the sentence surrounding the blank, not to the target_term itself — the target_term is fixed by the pair and must not be simplified or substituted.
 
                 "CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
-                Do not write any question in {source_language}. Double-check each question before finalizing — 
+                Do not write any question in {source_language}. Double-check each question before finalizing —
                 the sentence language and the answer language must always match {target_language}."
                 Here are examples of well-constrained questions:
 
@@ -203,42 +307,11 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 contrasting with another named person (see the madre/padre example above), pronouns, or situational context work better than
                 spelling out what the word means.
 
-                Verb conjugation: a pair is a VERB pair if source_term or target_term begins with "to " (e.g. "to
-                walk"). For these pairs, do NOT use the bare infinitive as the blank's answer — the goal is to test
-                whether the learner can actually conjugate the verb, not just recall its infinitive. Instead:
-                1. Find the bare infinitive to conjugate: if target_term begins with "to ", strip that "to " to get
-                   it (e.g. "to walk" → "walk"); otherwise target_term is already the bare infinitive (e.g. "caminar",
-                   a Spanish/French infinitive needs no stripping).
-                2. Pick a natural subject (a pronoun, a name, or a noun) and a tense/mood appropriate to the
-                   complexity level above, then conjugate the infinitive for that subject and tense in
-                   {target_language} (e.g. "caminar" + "ella" + preterite → "caminó").
-                3. Make that specific conjugated form — not the infinitive — both the blank and the correct_answer
-                   for this question.
-                4. After the sentence, append the bare infinitive in parentheses, e.g. "Ayer, mi hermano ___ cinco
-                   millas. (caminar)". Since the infinitive is given directly, the sentence does NOT need to include
-                   a clue disambiguating WHICH verb it is (the whole-category-ambiguity check above does not apply
-                   to identifying the verb itself for verb pairs) — the learner already knows which verb to
-                   conjugate. The sentence only needs to make the intended SUBJECT and TENSE clear enough to
-                   determine the one correct conjugated form (an explicit pronoun or name, a time marker like
-                   "ayer"/"mañana"/"todos los días", or clear context).
-                5. Vary the subject and tense across the different verb questions in this batch rather than
-                   defaulting to the same person/tense every time — this is what makes a requiz of the same verb
-                   list actually test different conjugations over time. {tense_instruction}
-
-                Modal/semi-auxiliary verbs (e.g. devoir, pouvoir, vouloir, savoir, and their equivalents in other
-                languages) are typically followed by an infinitive complement to form a natural sentence (e.g. "j'ai
-                dû finir mes dossiers" — "finir" is the complement, not the tested word). When target_term is such a
-                verb: the blank and correct_answer must be ONLY the conjugated form of target_term itself. Any
-                infinitive complement the sentence needs must be a DIFFERENT verb, written out normally, NOT left as
-                a second blank and NOT filled with another form of target_term. Never let any form of target_term
-                (conjugated, participle, or infinitive) appear anywhere in the sentence outside the one blank it
-                belongs in — a sentence like "j'ai dû ___ de l'argent (devoir)" where the blank is also meant to be
-                "dû" is wrong twice over: it repeats the already-visible "j'ai dû" and leaves no real infinitive
-                complement.
-
-                Non-verb pairs (source_term and target_term both lack a leading "to ") are unaffected by the above —
-                the blank is the target_term itself, exactly as already described, with no parenthetical infinitive
-                and the full whole-category-ambiguity check still applying.
+                A pair may look like a verb (source_term or target_term begins with "to ", e.g. "to walk"), but this
+                is a VOCABULARY list, not a verb-conjugation quiz — treat every pair as an ordinary word regardless
+                of its shape. The blank and correct_answer are the target_term exactly as given (its bare infinitive
+                form, e.g. "caminar"), never a conjugated form, and no parenthetical infinitive is added. The
+                whole-category-ambiguity check above still applies to these pairs like any other.
 
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
@@ -250,8 +323,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 Do NOT write the question as a dictionary-style definition of target term.
                 The sentence should use the word naturally, in a realistic situation or context,
                 not describe or define what the word means.
-                Use "_____" to mark where the blank goes. The blank is the target_term, or — for a verb pair per the
-                Verb conjugation guidance above — the specific conjugated form derived from it.
+                Use "_____" to mark where the blank goes. The blank is the target_term.
                 Do not use source_term in the question text.
 
 
@@ -284,13 +356,23 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
         question.vocab_pair_id = pair.get("id")
 
     # Modal verbs (devoir, pouvoir, ...) occasionally trip the self-collision
-    # bug the prompt above warns against. Retry just the affected pair (up to
-    # _retries_left times) rather than regenerating the whole batch — keeps
-    # the quiz's word selection intact and only spends extra calls when a
-    # question actually needs it.
+    # bug the prompt above warns against; verb pairs occasionally get left
+    # unconjugated (answer == the bare infinitive) or lose their trailing
+    # "(infinitive)" hint entirely, despite the prompt spelling both out.
+    # Retry just the affected pair (up to _retries_left times) rather than
+    # regenerating the whole batch — keeps the quiz's word selection intact
+    # and only spends extra calls when a question actually needs it.
     if _retries_left > 0:
         for i, question in enumerate(questions):
-            if not _answer_duplicated_in_sentence(question):
+            pair = pairs[i]
+            needs_retry = _answer_duplicated_in_sentence(question) or (
+                list_type == "verb"
+                and (
+                    _verb_answer_is_bare_infinitive(question, pair)
+                    or _verb_parenthetical_missing(question)
+                )
+            )
+            if not needs_retry:
                 continue
             try:
                 retried = generate_question_batch(
@@ -302,6 +384,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                     verb_tense,
                     flip,
                     focus,
+                    list_type,
                     _retries_left=_retries_left - 1,
                 )
                 questions[i] = retried[0]

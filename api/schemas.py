@@ -25,6 +25,12 @@ class GenerateQuestionsRequest(BaseModel):
     # skill the learner is struggling with (from the quiz-insight analysis
     # of their last quiz), so the questions get written to exercise it.
     focus: str | None = None
+    # "vocab" or "verb" — decides which prompt this batch uses. A verb-
+    # shaped pair ("to walk"/"caminar") is tested as an ordinary word in a
+    # vocab list (bare infinitive, no conjugation) and conjugated in a verb
+    # list; verb_tense alone can't tell these apart, since it's null for
+    # both a vocab list and a verb list set to "Mixed".
+    list_type: str = "vocab"
 
 
 class SaveListRequest(BaseModel):

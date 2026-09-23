@@ -432,6 +432,7 @@ def route_generate_question_batch(request: GenerateQuestionsRequest):
         request.verb_tense,
         request.flip,
         request.focus,
+        request.list_type,
     )
     return result
 
