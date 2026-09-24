@@ -13,6 +13,15 @@ class Question(BaseModel):
     # is asked to produce itself. None for pairs with no id (ad-hoc/unsaved
     # lists, which have no attempt history to track anyway).
     vocab_pair_id: Optional[str] = None
+    # Which tense/mood value (e.g. "preterite" — matching core/tenses.py's
+    # TENSES_BY_LANGUAGE value strings, not its display label) THIS
+    # question actually conjugates in. Unlike vocab_pair_id, this one IS
+    # asked of Gemini directly — in multi-tense mode it picks the tense
+    # per question itself, so there's no other way to know afterward which
+    # one it landed on. None for vocab questions and flip-mode questions,
+    # where tense doesn't apply, and for anything generated before this
+    # field existed.
+    tense: Optional[str] = None
 
 class QuestionBatch(BaseModel):
     questions: List[Question]

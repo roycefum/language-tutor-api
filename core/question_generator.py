@@ -211,6 +211,9 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 
                 Do not include source_term anywhere in the question_text itself — the sentence must be entirely in
                 {target_language}, with only the bracketed target_term as the word being tested.
+
+                Leave the "tense" field empty/null for every question — it only applies to verb-conjugation
+                questions, not this comprehension mode.
             """
     elif list_type == "verb":
         # A Verb list is, by definition, entirely verb pairs — every pair
@@ -238,11 +241,14 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 4. After the sentence, append the bare infinitive in parentheses, e.g. "Ayer, mi hermano ___ cinco
                    millas. (caminar)". This parenthetical is required on every single question in this batch, with
                    no exceptions — since the infinitive is given directly, the sentence doesn't need any other clue
-                   about which verb it is. It only needs to make the intended SUBJECT and TENSE clear enough to
-                   determine the one correct conjugated form (an explicit pronoun or name, a time marker like
-                   "ayer"/"todos los días"/"el año que viene", or clear context) — but the marker must point to
-                   ONLY the tense you picked, not double as a natural fit for a different tense too. Some time
-                   words are genuinely ambiguous this way: "mañana" ("tomorrow") is used naturally with BOTH the
+                   about which verb it is. It DOES still need something that settles the TENSE — a subject alone
+                   ("Ellos ___ ayuda al profesor.") only says WHO, never WHEN, so present, preterite, and imperfect
+                   could all fit equally well and the question becomes unscoreable. Every single question needs an
+                   explicit time marker ("ayer"/"todos los días"/"el año que viene") or an equally unambiguous
+                   clue elsewhere in the sentence (e.g. "mientras estudiaba" already implies imperfect) — never
+                   just a bare subject and blank with nothing else pinning down when it happens. And the marker
+                   must point to ONLY the tense you picked, not double as a natural fit for a different tense too.
+                   Some time words are genuinely ambiguous this way: "mañana" ("tomorrow") is used naturally with BOTH the
                    future ("Mañana saldremos temprano") and the present, for a planned near-future action ("Mañana
                    salimos temprano") — a learner answering with either tense would be correct, which makes the
                    question unscoreable. Before finalizing, check whether a different tense could also sound
@@ -252,10 +258,18 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                    form is itself identical across two tenses for a given subject (e.g. -ir verbs' nosotros form is
                    spelled the same in the present and the preterite, like "salimos") — for those, the sentence's
                    own context has to be the only thing settling which tense is intended, since the word itself
-                   can't.
+                   can't. Subjunctive is a special case here: it isn't a time at all, so a time marker doesn't
+                   apply to it. Its disambiguating clue is a grammatical trigger phrase that requires the
+                   subjunctive — doubt, wish, necessity, or emotion ("espero que", "es importante que", "ojalá
+                   que", "no creo que", "quiero que") — built into the sentence right before the subject/blank, so
+                   the mood itself is forced by the sentence's structure rather than guessed from timing.
                 5. Vary the subject and tense across the different verb questions in this batch rather than
                    defaulting to the same person/tense every time — this is what makes a requiz of the same verb
                    list actually test different conjugations over time. {tense_instruction}
+                6. Report which tense/mood you actually used for this question in the "tense" field, as the exact
+                   value string {json.dumps(verb_tenses) if verb_tenses else "matching a value from core/tenses.py's TENSES_BY_LANGUAGE"}
+                   — not the display label, and not anything else. This must be set on every question in this
+                   batch.
 
                 {cefr_guidance}
                 This complexity guidance applies to the sentence surrounding the blank and the choice of
@@ -341,7 +355,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 Use "_____" to mark where the blank goes. The blank is the target_term.
                 Do not use source_term in the question text.
 
-
+                Leave the "tense" field empty/null for every question — it only applies to a Verb list.
 
             """
 

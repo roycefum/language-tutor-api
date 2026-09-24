@@ -523,7 +523,7 @@ def delete_quiz_session(client, session_id, user_id):
 
 def create_quiz_attempt(
     client, user_id, session_id, vocab_pair_id, question_text, skill_category, was_correct,
-    user_answer, correct_answer,
+    user_answer, correct_answer, tense=None, used_tense_hint=False,
 ):
     """
     Records one answered (or skipped) question. vocab_pair_id may be None
@@ -532,6 +532,10 @@ def create_quiz_attempt(
     (not just was_correct) so a full per-question results view can be
     reconstructed later, including after resuming a session across app
     restarts — see get_attempts_for_session().
+
+    tense/used_tense_hint are purely for developer-facing analysis (e.g.
+    "what fraction of subjunctive answers needed the tense hint?") — query
+    them directly in Supabase, no in-app screen reads them.
     """
     client.table("quiz_attempts").insert({
         "user_id": user_id,
@@ -542,6 +546,8 @@ def create_quiz_attempt(
         "was_correct": was_correct,
         "user_answer": user_answer,
         "correct_answer": correct_answer,
+        "tense": tense,
+        "used_tense_hint": used_tense_hint,
     }).execute()
 
 

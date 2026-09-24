@@ -89,6 +89,12 @@ class CreateAttemptRequest(BaseModel):
     was_correct: bool
     user_answer: str
     correct_answer: str
+    # Copied from the question's own tense field (see data/models.py's
+    # Question) and whether the tense-hint button was tapped before
+    # answering — developer-facing analysis only, queried directly in
+    # Supabase rather than surfaced anywhere in the app.
+    tense: str | None = None
+    used_tense_hint: bool = False
 
 
 class DetectLanguageRequest(BaseModel):

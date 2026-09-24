@@ -514,6 +514,8 @@ def route_create_attempt(
         request.was_correct,
         request.user_answer,
         request.correct_answer,
+        request.tense,
+        request.used_tense_hint,
     )
     return {"status": "recorded"}
 
