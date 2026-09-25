@@ -8,7 +8,7 @@ from typing import List
 from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
-from core.tenses import get_tense_labels
+from core.tenses import get_tense_labels, TENSES_BY_LANGUAGE
 
 load_dotenv()
 client = genai.Client()
@@ -78,6 +78,16 @@ def _verb_answer_is_bare_infinitive(question, pair):
 def _verb_parenthetical_missing(question):
     return _TRAILING_PAREN_RE.search(question.question_text) is None
 
+
+# The model reports which tense its own answer is actually in (see step 6 of
+# the verb prompt); if that isn't one of the tenses the learner asked for,
+# the question is off-request — e.g. an "Anoche, mis abuelos ___" preterite
+# question in an Imperfect-only quiz — and gets regenerated. Only fires when
+# a tense was actually reported: a missing report isn't treated as a
+# mismatch, so it can't cause endless retries.
+def _verb_tense_mismatch(question, verb_tenses):
+    return bool(verb_tenses) and bool(question.tense) and question.tense not in verb_tenses
+
 def question_generator (source_term: str, target_term: str, source_language: str, target_language:str) -> Question:
 
     prompt = f""" {source_term} is the source term in the {source_language}. This is the language that the user already knows.
@@ -133,6 +143,12 @@ def question_generator (source_term: str, target_term: str, source_language: str
 def generate_question_batch (pairs:list[dict], source_language: str, target_language:str,batch_size:int, level:str = DEFAULT_CEFR_LEVEL, verb_tenses: list[str] | None = None, flip: bool = False, focus: str | None = None, list_type: str = "vocab", _retries_left: int = 4) -> QuestionBatch:
 
     cefr_guidance = get_cefr_guidance(level)
+    # Every tense value valid for this language, not just the requested ones
+    # — the model reports what it actually wrote from this full list, so a
+    # question that drifted out of the requested tense can be caught
+    # (see _verb_tense_mismatch) instead of being forced to echo the one
+    # value it was asked for.
+    all_tense_values = [tense["value"] for tense in TENSES_BY_LANGUAGE.get(target_language, [])]
     # One tense selected behaves like the old "specific tense" mode; more
     # than one behaves like the old "Mixed" mode (which used to mean ALL
     # tenses, unconditionally) — both are really the same instruction,
@@ -252,9 +268,15 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                    future ("Mañana saldremos temprano") and the present, for a planned near-future action ("Mañana
                    salimos temprano") — a learner answering with either tense would be correct, which makes the
                    question unscoreable. Before finalizing, check whether a different tense could also sound
-                   natural with the same sentence and marker; if so, either pick a marker that rules that out
-                   (a habitual marker like "todos los días" only fits present; "ayer" only fits a past tense) or
-                   add unambiguous context elsewhere in the sentence. This matters most for verbs whose conjugated
+                   natural with the same sentence and marker; if so, either pick a marker that rules that out or
+                   add unambiguous context elsewhere in the sentence. Rough guide to which cues belong to which
+                   tense (use the equivalents in {target_language}): PRESENT — "todos los días", "normalmente",
+                   "ahora"; PRETERITE (one completed event) — "ayer", "anoche", "la semana pasada", "hace dos
+                   días"; IMPERFECT (habitual or ongoing past) — "de pequeño", "cuando era niña", "todos los
+                   veranos", "mientras", "siempre" in a past setting; FUTURE — "el año que viene", "dentro de dos
+                   semanas"; PRESENT PERFECT — "hoy", "esta semana", "ya", "todavía no". Note "ayer" alone can fit
+                   both preterite and imperfect, so it isn't enough on its own for an imperfect question. This
+                   matters most for verbs whose conjugated
                    form is itself identical across two tenses for a given subject (e.g. -ir verbs' nosotros form is
                    spelled the same in the present and the preterite, like "salimos") — for those, the sentence's
                    own context has to be the only thing settling which tense is intended, since the word itself
@@ -266,10 +288,16 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 5. Vary the subject and tense across the different verb questions in this batch rather than
                    defaulting to the same person/tense every time — this is what makes a requiz of the same verb
                    list actually test different conjugations over time. {tense_instruction}
-                6. Report which tense/mood you actually used for this question in the "tense" field, as the exact
-                   value string {json.dumps(verb_tenses) if verb_tenses else "matching a value from core/tenses.py's TENSES_BY_LANGUAGE"}
-                   — not the display label, and not anything else. This must be set on every question in this
-                   batch.
+                6. Report which tense/mood the correct_answer you wrote is ACTUALLY in, in the "tense" field, as
+                   the exact value string from this list: {json.dumps(all_tense_values)} — not the display label.
+                   Report what the conjugated form really is, even if that isn't one of the tenses requested
+                   above: an honest report matters more than matching the request, because a mismatch gets the
+                   question regenerated, while a false report tells the learner the wrong tense. Check your work:
+                   the required tense was chosen for you, so the answer must genuinely be in it, and the time
+                   marker or clue you picked must belong to THAT tense, not to a different one (a marker like
+                   "anoche" or "ayer" signals a single completed event — the preterite — so it does not belong in
+                   an imperfect question; imperfect wants habitual or ongoing past cues like "de pequeño",
+                   "cuando era niña", "todos los veranos", "mientras"). This field must be set on every question.
 
                 {cefr_guidance}
                 This complexity guidance applies to the sentence surrounding the blank and the choice of
@@ -399,6 +427,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 and (
                     _verb_answer_is_bare_infinitive(question, pair)
                     or _verb_parenthetical_missing(question)
+                    or _verb_tense_mismatch(question, verb_tenses)
                 )
             )
             if not needs_retry:
