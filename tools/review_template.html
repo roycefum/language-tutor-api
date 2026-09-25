@@ -1,0 +1,431 @@
+<title>Question Review</title>
+<style>
+  :root {
+    --bg: #F5EFD5;
+    --card: #FFFDF6;
+    --ink: #2E2718;
+    --soft: #6b6350;
+    --rule: #D8CFA8;
+    --good: #2f6b3d;
+    --good-bg: rgba(47, 107, 61, 0.12);
+    --bad: #b3352a;
+    --bad-bg: rgba(179, 53, 42, 0.11);
+    --flag: #8a5a00;
+    --flag-bg: rgba(200, 150, 0, 0.16);
+    --accent: #6a5f94;
+    --chip: #EDE5C4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1d1a10;
+      --card: #27231a;
+      --ink: #F0EAD6;
+      --soft: #b7ae94;
+      --rule: #423d2b;
+      --good: #7fcf90;
+      --good-bg: rgba(127, 207, 144, 0.14);
+      --bad: #ff8a7d;
+      --bad-bg: rgba(255, 138, 125, 0.13);
+      --flag: #f0c060;
+      --flag-bg: rgba(240, 192, 96, 0.15);
+      --accent: #b8aee6;
+      --chip: #332e20;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1d1a10;
+    --card: #27231a;
+    --ink: #F0EAD6;
+    --soft: #b7ae94;
+    --rule: #423d2b;
+    --good: #7fcf90;
+    --good-bg: rgba(127, 207, 144, 0.14);
+    --bad: #ff8a7d;
+    --bad-bg: rgba(255, 138, 125, 0.13);
+    --flag: #f0c060;
+    --flag-bg: rgba(240, 192, 96, 0.15);
+    --accent: #b8aee6;
+    --chip: #332e20;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    margin: 0;
+    padding-inline: 16px;
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding-block: 12px 64px; }
+  .bar {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 5;
+    background: var(--bg);
+    padding-block: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .bar-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .bar h1 { font-size: 17px; margin: 0; letter-spacing: 0.01em; }
+  select {
+    flex: 1 1 220px;
+    min-width: 0;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .meta { font-size: 12.5px; color: var(--soft); line-height: 1.55; margin: 8px 0 0; }
+  .stats { font-size: 14px; font-weight: 600; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+  .stats small { display: block; font-weight: 400; color: var(--soft); font-size: 12.5px; margin-top: 2px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .chips button {
+    font: inherit;
+    font-size: 13px;
+    color: var(--ink);
+    background: var(--chip);
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .chips button[aria-pressed="true"] { border-color: var(--ink); font-weight: 700; }
+  .savestate { font-size: 12px; color: var(--soft); margin: 8px 0 0; }
+  .savestate.err { color: var(--bad); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 5px solid var(--rule);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-top: 14px;
+  }
+  .card.good { border-left-color: var(--good); }
+  .card.bad { border-left-color: var(--bad); background: linear-gradient(var(--bad-bg), var(--bad-bg)), var(--card); }
+  .row1 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--soft); }
+  .num { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; margin-right: 2px; }
+  .tag { background: var(--chip); border-radius: 6px; padding: 2px 8px; color: var(--ink); }
+  .tag.warn { background: var(--flag-bg); color: var(--flag); font-weight: 600; }
+  .tag.err { background: var(--bad-bg); color: var(--bad); font-weight: 600; }
+  .flags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .flag { background: var(--flag-bg); color: var(--flag); border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+  .q {
+    font-family: ui-serif, Georgia, "Times New Roman", serif;
+    font-size: 21px;
+    line-height: 1.5;
+    margin: 12px 0 10px;
+  }
+  .a { margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .a .lab { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+  .ans { font-family: ui-serif, Georgia, "Times New Roman", serif; font-size: 24px; font-weight: 800; }
+  .ans .acc { color: var(--accent); text-decoration: underline; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .actions button {
+    flex: 1;
+    min-height: 44px;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+    background: var(--chip);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .actions button[data-v="good"][aria-pressed="true"] { background: var(--good-bg); border-color: var(--good); color: var(--good); }
+  .actions button[data-v="bad"][aria-pressed="true"] { background: var(--bad-bg); border-color: var(--bad); color: var(--bad); }
+  .note {
+    display: block;
+    width: 100%;
+    margin-top: 8px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    padding: 9px 10px;
+  }
+  .empty { color: var(--soft); text-align: center; padding-block: 48px; line-height: 1.6; }
+  button:focus-visible, select:focus-visible, .note:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+<main>
+  <div class="bar">
+    <div class="bar-top">
+      <h1>Question Review</h1>
+      <select id="run" aria-label="Run"></select>
+    </div>
+    <p class="meta" id="meta"></p>
+    <p class="stats" id="stats"></p>
+    <div class="chips" id="chips"></div>
+    <p class="savestate" id="savestate"></p>
+  </div>
+  <div id="cards"></div>
+</main>
+<script>
+const RUNS = __RUNS_JSON__;
+
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const FILTERS = [["all", "All"], ["flagged", "Auto-flagged"], ["unreviewed", "Unreviewed"], ["bad", "Marked bad"], ["good", "Marked good"]];
+  const FLAG_LABELS = {
+    no_blank: "no blank",
+    answer_in_sentence: "answer repeated in the sentence",
+    duplicate_question: "duplicate question",
+    answer_is_infinitive: "answer is the infinitive",
+    no_parenthetical: "no (infinitive) hint",
+    tense_not_reported: "tense not reported",
+    tense_not_requested: "tense not one that was requested",
+  };
+
+  let run = null;
+  let filter = "all";
+  let db = null;
+  const marks = new Map();     // doc id -> { verdict, note }
+  const cardRefs = new Map();  // row id -> DOM handles
+  const writeQueues = new Map();
+
+  const hasAccent = (ch) => /[̀-ͯ]/.test(ch.normalize("NFD"));
+  const docId = (row) => run.id + "__" + row.id;
+  const markFor = (row) => marks.get(docId(row));
+
+  function el(tag, cls, text) {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function setSaveState(text, isError) {
+    const node = $("savestate");
+    node.textContent = text;
+    node.className = "savestate" + (isError ? " err" : "");
+  }
+
+  function renderAnswer(container, text) {
+    container.textContent = "";
+    for (const ch of [...String(text).normalize("NFC")]) {
+      const span = document.createElement("span");
+      if (hasAccent(ch)) span.className = "acc";
+      span.textContent = ch;
+      container.appendChild(span);
+    }
+  }
+
+  function passesFilter(row) {
+    const mark = markFor(row);
+    switch (filter) {
+      case "flagged": return row.flags.length > 0;
+      case "unreviewed": return !mark;
+      case "bad": return !!mark && mark.verdict === "bad";
+      case "good": return !!mark && mark.verdict === "good";
+      default: return true;
+    }
+  }
+
+  function refreshCard(row) {
+    const ref = cardRefs.get(row.id);
+    if (!ref) return;
+    const mark = markFor(row);
+    const verdict = mark ? mark.verdict : "";
+    ref.card.classList.toggle("good", verdict === "good");
+    ref.card.classList.toggle("bad", verdict === "bad");
+    ref.goodBtn.setAttribute("aria-pressed", String(verdict === "good"));
+    ref.badBtn.setAttribute("aria-pressed", String(verdict === "bad"));
+    ref.note.hidden = !mark;
+    if (mark && document.activeElement !== ref.note) ref.note.value = mark.note || "";
+    ref.card.hidden = !passesFilter(row);
+  }
+
+  function refreshChrome() {
+    if (!run) return;
+    const rows = run.rows;
+    let good = 0, bad = 0, badFlagged = 0, flagged = 0;
+    const counts = { all: rows.length, flagged: 0, unreviewed: 0, bad: 0, good: 0 };
+    for (const row of rows) {
+      const mark = markFor(row);
+      if (row.flags.length) { flagged++; counts.flagged++; }
+      if (!mark) counts.unreviewed++;
+      else if (mark.verdict === "good") { good++; counts.good++; }
+      else if (mark.verdict === "bad") { bad++; counts.bad++; if (row.flags.length) badFlagged++; }
+    }
+    const reviewed = good + bad;
+    $("stats").textContent = "";
+    $("stats").append(`Reviewed ${reviewed}/${rows.length} · ${good} good · ${bad} bad · ${flagged} auto-flagged`);
+    if (bad > 0) {
+      $("stats").appendChild(el("small", "", `Of ${bad} marked bad: ${badFlagged} caught by auto-flags, ${bad - badFlagged} not (what the checks miss).`));
+    }
+    document.querySelectorAll("#chips button").forEach((btn) => {
+      const key = btn.dataset.f;
+      btn.textContent = `${FILTERS.find((f) => f[0] === key)[1]} (${counts[key]})`;
+      btn.setAttribute("aria-pressed", String(key === filter));
+    });
+  }
+
+  function refreshAll() {
+    if (!run) return;
+    run.rows.forEach(refreshCard);
+    refreshChrome();
+  }
+
+  function queueWrite(id, task) {
+    const previous = writeQueues.get(id) || Promise.resolve();
+    const next = previous.then(task).then(
+      () => setSaveState("Marks save automatically."),
+      (e) => setSaveState("Couldn't save a mark (" + ((e && e.code) || "error") + ") — it's kept on this page only.", true)
+    );
+    writeQueues.set(id, next);
+    return next;
+  }
+
+  function persist(row, verdict, note) {
+    const id = docId(row);
+    if (!verdict) {
+      marks.delete(id);
+      refreshCard(row); refreshChrome();
+      if (db) queueWrite(id, () => db.doc("marks/" + id).delete());
+      return;
+    }
+    marks.set(id, { verdict, note });
+    refreshCard(row); refreshChrome();
+    if (!db) return;
+    const body = {
+      run: run.id, label: run.label, row: row.id, n: row.n,
+      verdict, note,
+      word: row.word, gloss: row.gloss,
+      question: row.question, answer: row.answer,
+      requested: run.requested_tenses, reported: row.reported_tense || null,
+      flags: row.flags, at: new Date().toISOString(),
+    };
+    queueWrite(id, () => db.doc("marks/" + id).set(body));
+  }
+
+  function onVerdict(row, verdict) {
+    const mark = markFor(row);
+    if (mark && mark.verdict === verdict) persist(row, "", "");
+    else persist(row, verdict, mark ? mark.note : "");
+  }
+
+  function buildCard(row) {
+    const card = el("article", "card");
+    const top = el("div", "row1");
+    top.append(el("span", "num", "#" + row.n), el("span", "tag", row.gloss + " → " + row.word));
+    const tenseTag = el("span", "tag", "tense: " + (row.reported_tense || "not reported"));
+    if (!row.reported_tense) tenseTag.classList.add("warn");
+    if (row.flags.includes("tense_not_requested")) tenseTag.classList.add("err");
+    top.appendChild(tenseTag);
+    card.appendChild(top);
+
+    if (row.flags.length) {
+      const flags = el("div", "flags");
+      row.flags.forEach((f) => flags.appendChild(el("span", "flag", FLAG_LABELS[f] || f)));
+      card.appendChild(flags);
+    }
+
+    card.appendChild(el("p", "q", row.question));
+    const answer = el("p", "a");
+    answer.appendChild(el("span", "lab", "Answer"));
+    const ans = el("span", "ans");
+    renderAnswer(ans, row.answer);
+    answer.appendChild(ans);
+    card.appendChild(answer);
+
+    const actions = el("div", "actions");
+    const goodBtn = el("button", "", "✓ Good");
+    const badBtn = el("button", "", "✗ Bad");
+    goodBtn.dataset.v = "good"; badBtn.dataset.v = "bad";
+    goodBtn.type = badBtn.type = "button";
+    goodBtn.addEventListener("click", () => onVerdict(row, "good"));
+    badBtn.addEventListener("click", () => onVerdict(row, "bad"));
+    actions.append(goodBtn, badBtn);
+    card.appendChild(actions);
+
+    const note = el("input", "note");
+    note.type = "text";
+    note.placeholder = "What's wrong (or right)? Optional note";
+    note.hidden = true;
+    let timer = null;
+    note.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const mark = markFor(row);
+        if (mark) persist(row, mark.verdict, note.value);
+      }, 600);
+    });
+    card.appendChild(note);
+
+    cardRefs.set(row.id, { card, goodBtn, badBtn, note });
+    return card;
+  }
+
+  function selectRun(id) {
+    run = RUNS.find((r) => r.id === id) || RUNS[RUNS.length - 1];
+    $("run").value = run.id;
+    cardRefs.clear();
+    const container = $("cards");
+    container.textContent = "";
+    run.rows.forEach((row) => container.appendChild(buildCard(row)));
+
+    const lines = [
+      `${run.created.replace("T", " ")} · ${run.mode} · ${run.language} · level ${run.level}`,
+      run.requested_tenses.length ? `Requested tenses: ${run.requested_tenses.join(", ")}` : "",
+      `Model: ${run.model}`,
+      `Code: ${run.git_commit || "?"}${run.git_dirty ? " + uncommitted edits" : ""} (hash ${run.code_hash}) · the generator's own checks regenerated ${run.retry_calls} question(s)`,
+      run.errors.length ? `${run.errors.length} batch(es) failed: ${run.errors.join("; ")}` : "",
+    ].filter(Boolean);
+    $("meta").textContent = "";
+    lines.forEach((line, i) => { if (i) $("meta").appendChild(document.createElement("br")); $("meta").append(line); });
+    refreshAll();
+  }
+
+  function init() {
+    if (!RUNS.length) {
+      $("cards").appendChild(el("p", "empty", "No runs yet. Generate one with tools/review_questions.py, then republish this page."));
+      return;
+    }
+    const select = $("run");
+    RUNS.forEach((r) => select.appendChild(el("option", "", `${r.created.replace("T", " ")} · ${r.label} · ${r.rows.length} questions`)));
+    RUNS.forEach((r, i) => { select.children[i].value = r.id; });
+    select.addEventListener("change", () => selectRun(select.value));
+
+    const chips = $("chips");
+    FILTERS.forEach(([key]) => {
+      const btn = el("button", "", key);
+      btn.type = "button";
+      btn.dataset.f = key;
+      btn.addEventListener("click", () => { filter = key; refreshAll(); });
+      chips.appendChild(btn);
+    });
+    selectRun(RUNS[RUNS.length - 1].id);
+    connectDb();
+  }
+
+  async function connectDb() {
+    try {
+      const c = window.claude;
+      db = c && c.use ? await c.use("db") : null;
+    } catch (e) { db = null; }
+    if (!db) {
+      setSaveState("Marks can't be saved in this view — they last only until you close the page.", true);
+      return;
+    }
+    setSaveState("Marks save automatically.");
+    db.collection("marks").onSnapshot(
+      (snap) => {
+        marks.clear();
+        snap.docs.forEach((d) => {
+          const v = d.data() || {};
+          marks.set(d.id, { verdict: v.verdict, note: v.note || "" });
+        });
+        refreshAll();
+      },
+      (e) => setSaveState("Lost the connection to saved marks (" + ((e && e.code) || "error") + ").", true)
+    );
+  }
+
+  init();
+})();
+</script>
