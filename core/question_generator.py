@@ -13,14 +13,18 @@ from core.tenses import get_tense_labels, TENSES_BY_LANGUAGE
 load_dotenv()
 client = genai.Client()
 
-# Verb-conjugation questions need a model that fits the assigned verb into a
-# natural sentence — the cheaper flash-lite model wrote about 1 in 17 of
-# them badly (e.g. "mi abuelo era cuentos" for ser), while this one had none
-# in 200 reviewed questions across four tenses (see tools/review_questions.py).
-# Low thinking keeps the cost close to flash-lite: the default thinking level
-# billed roughly 1,400 extra output tokens per batch of five.
-VERB_QUESTION_MODEL = "gemini-3.8-flash"
-DEFAULT_QUESTION_MODEL = "gemini-3.5-flash-lite"
+# Fill-in-the-blank questions need a model that fits the required answer into
+# a natural sentence. The cheaper flash-lite model repeatedly forced it into a
+# sentence where it didn't fit: about 1 in 17 verb questions (e.g. "mi abuelo
+# era cuentos" for ser) and 3 of 29 on a harder vocab set (e.g. "van a ___ del
+# buen tiempo" for "depender de"). This model had none in 200 reviewed verb
+# questions across four tenses and none in 60 vocab questions (see
+# tools/review_questions.py). Low thinking keeps the cost down: the default
+# thinking level billed roughly 1,400 extra output tokens per batch of five.
+# Flip mode (a plain comprehension prompt) hasn't been tested on it and stays
+# on the cheaper model.
+QUESTION_MODEL = "gemini-3.8-flash"
+FLIP_QUESTION_MODEL = "gemini-3.5-flash-lite"
 
 # Gemini's structured JSON output occasionally corrupts an accented
 # character into a literal "#XXXX" sequence instead of the real character
@@ -361,12 +365,12 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     
 
 
-    if list_type == "verb" and not flip:
-        question_model = VERB_QUESTION_MODEL
-        thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
-    else:
-        question_model = DEFAULT_QUESTION_MODEL
+    if flip:
+        question_model = FLIP_QUESTION_MODEL
         thinking_config = None
+    else:
+        question_model = QUESTION_MODEL
+        thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
 
     try: 
         response = client.models.generate_content(

@@ -73,6 +73,35 @@ SPANISH_VOCAB = [
 ]
 WORD_SETS = {("Spanish", "verb"): SPANISH_VERBS, ("Spanish", "vocab"): SPANISH_VOCAB}
 
+# A harder vocab set, closer to what learners actually upload than the plain
+# nouns above: words whose neighbours in the same list could fill the same
+# blank, words with several meanings, verb-dependent prepositions, phrases,
+# connector words (as a control — these should be easy), and lines with
+# formatting noise. Entries are (source, target, category); the "messy" ones
+# are raw text lines that go through the app's real parser first
+# (core.helpers.parse_pasted_list), so what the generator sees is what it
+# would see for a pasted list.
+SPANISH_VOCAB_HARD = [
+    ("tired", "cansado", "near-synonyms"), ("exhausted", "agotado", "near-synonyms"),
+    ("house", "casa", "near-synonyms"), ("home", "hogar", "near-synonyms"),
+    ("small", "pequeño", "near-synonyms"), ("little", "chico", "near-synonyms"),
+    ("fast", "rápido", "near-synonyms"), ("quick", "veloz", "near-synonyms"),
+    ("bank", "banco", "several meanings"), ("letter", "carta", "several meanings"),
+    ("match", "partido", "several meanings"), ("orange", "naranja", "several meanings"),
+    ("spring", "primavera", "several meanings"),
+    ("during", "durante", "preposition"), ("without", "sin", "preposition"),
+    ("until", "hasta", "preposition"), ("among", "entre", "preposition"),
+    ("to depend on", "depender de", "preposition"), ("to dream about", "soñar con", "preposition"),
+    ("by the way", "por cierto", "phrase"), ("to be fed up", "estar harto", "phrase"),
+    ("as soon as possible", "lo antes posible", "phrase"), ("on the other hand", "por otro lado", "phrase"),
+    ("although", "aunque", "connector (control)"), ("whereas", "mientras que", "connector (control)"),
+    ("nevertheless", "sin embargo", "connector (control)"), ("despite", "a pesar de", "connector (control)"),
+    ("raw", "bat (animal) - murciélago", "messy line"),
+    ("raw", "doctor (male): el médico", "messy line"),
+    ("raw", "job / work -> trabajo", "messy line"),
+]
+HARD_SETS = {("Spanish", "vocab"): SPANISH_VOCAB_HARD}
+
 def _git(*args):
     try:
         return subprocess.run(
@@ -123,7 +152,10 @@ def main():
     parser.add_argument("--tenses", default="present",
                         help='comma-separated tense values (see core/tenses.py), or "all"')
     parser.add_argument("--level", default="B1", help="CEFR level A1-C2")
-    parser.add_argument("--count", type=int, default=100)
+    parser.add_argument("--count", type=int, default=None,
+                        help="questions to write (default: 100, or the whole set for --wordset hard)")
+    parser.add_argument("--wordset", choices=["standard", "hard"], default="standard",
+                        help="which fixed word set to draw from (hard exists for Spanish vocab only)")
     parser.add_argument("--label", default="run", help="short note on what this run tests, e.g. baseline / short-prompt")
     parser.add_argument("--model", default=None, help="force a specific Gemini model for every call")
     parser.add_argument("--thinking", default=None, choices=["minimal", "low", "medium", "high"],
@@ -138,9 +170,30 @@ def main():
         print(f"Rebuilt {out} from {n} run(s).")
         return
 
-    words = WORD_SETS.get((args.language, args.mode))
+    sets = HARD_SETS if args.wordset == "hard" else WORD_SETS
+    words = sets.get((args.language, args.mode))
     if words is None:
-        sys.exit(f"No fixed word set for {args.language} / {args.mode} yet — add one to WORD_SETS.")
+        sys.exit(f"No {args.wordset} word set for {args.language} / {args.mode} yet.")
+    categories = {}
+    if args.wordset == "hard":
+        # Raw lines go through the real parser, so a messy line is tested as
+        # the app would actually receive it (including if it gets skipped).
+        from core.helpers import parse_pasted_list
+        resolved = []
+        for source, target, category in words:
+            if source == "raw":
+                parsed, skipped = parse_pasted_list(target)
+                for line in skipped:
+                    print(f"  parser skipped: {line!r}")
+                for pair in parsed:
+                    resolved.append((pair["source word"], pair["target word"]))
+                    categories[pair["target word"]] = category
+            else:
+                resolved.append((source, target))
+                categories[target] = category
+        words = resolved
+    if args.count is None:
+        args.count = len(words) if args.wordset == "hard" else 100
 
     requested = []
     if args.mode == "verb":
@@ -224,6 +277,7 @@ def main():
                 "n": n,
                 "word": pair["target word"],
                 "gloss": pair["source word"],
+                "category": categories.get(pair["target word"]),
                 "question": question.question_text,
                 "answer": question.correct_answer,
                 "reported_tense": question.tense,
@@ -240,6 +294,7 @@ def main():
         "mode": args.mode,
         "language": args.language,
         "level": args.level,
+        "wordset": args.wordset,
         "requested_tenses": requested,
         "model": (args.model or "default (as configured in code)")
         + (f", thinking {args.thinking}" if args.thinking else ""),

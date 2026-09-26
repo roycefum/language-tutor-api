@@ -295,7 +295,7 @@ const RUNS = __RUNS_JSON__;
     const body = {
       run: run.id, label: run.label, row: row.id, n: row.n,
       verdict, note,
-      word: row.word, gloss: row.gloss,
+      word: row.word, gloss: row.gloss, category: row.category || null,
       question: row.question, answer: row.answer,
       requested: run.requested_tenses, reported: row.reported_tense || null,
       flags: row.flags, at: new Date().toISOString(),
@@ -313,10 +313,11 @@ const RUNS = __RUNS_JSON__;
     const card = el("article", "card");
     const top = el("div", "row1");
     top.append(el("span", "num", "#" + row.n), el("span", "tag", row.gloss + " → " + row.word));
+    if (row.category) top.appendChild(el("span", "tag", row.category));
     const tenseTag = el("span", "tag", "tense: " + (row.reported_tense || "not reported"));
     if (!row.reported_tense) tenseTag.classList.add("warn");
     if (row.flags.includes("tense_not_requested")) tenseTag.classList.add("err");
-    top.appendChild(tenseTag);
+    if (run.mode === "verb") top.appendChild(tenseTag);
     card.appendChild(top);
 
     if (row.flags.length) {
