@@ -71,7 +71,8 @@ SPANISH_VOCAB = [
     ("neighbor", "vecino"), ("garden", "jardín"), ("train", "tren"), ("gift", "regalo"),
     ("rain", "lluvia"), ("mirror", "espejo"),
 ]
-WORD_SETS = {("Spanish", "verb"): SPANISH_VERBS, ("Spanish", "vocab"): SPANISH_VOCAB}
+WORD_SETS = {("Spanish", "verb"): SPANISH_VERBS, ("Spanish", "vocab"): SPANISH_VOCAB,
+             ("English", "verb"): None}  # filled in below, after ENGLISH_VERBS is defined
 
 # A harder vocab set, closer to what learners actually upload than the plain
 # nouns above: words whose neighbours in the same list could fill the same
@@ -100,7 +101,43 @@ SPANISH_VOCAB_HARD = [
     ("raw", "doctor (male): el médico", "messy line"),
     ("raw", "job / work -> trabajo", "messy line"),
 ]
-HARD_SETS = {("Spanish", "vocab"): SPANISH_VOCAB_HARD}
+# English as the language being learned (source: Spanish). Verbs are written
+# the way learners type them — mostly "to walk", a few bare — and cover the
+# irregular ones whose past forms and participles go wrong, plus be/have/do,
+# whose English forms are multi-word or auxiliary-like in several tenses.
+ENGLISH_VERBS = [
+    ("caminar", "to walk"), ("comer", "to eat"), ("ir", "to go"), ("comprar", "to buy"),
+    ("traer", "to bring"), ("pensar", "to think"), ("enseñar", "to teach"), ("atrapar", "to catch"),
+    ("correr", "to run"), ("escribir", "to write"), ("conducir", "to drive"), ("trabajar", "to work"),
+    ("estudiar", "to study"), ("jugar", "to play"), ("vivir", "to live"), ("ser / estar", "to be"),
+    ("tener", "to have"), ("hacer", "to do"), ("decir", "to say"), ("ver", "to see"),
+    ("dar", "to give"), ("tomar", "to take"), ("venir", "to come"), ("saber", "to know"),
+    ("querer", "to want"), ("dormir", "to sleep"), ("abrir", "to open"), ("dejar", "to leave"),
+    ("pedir", "to ask for"), ("vender", "to sell"), ("romper", "to break"), ("nadar", "to swim"),
+    ("hablar", "speak"), ("llegar", "arrive"),
+]
+# Mixed-difficulty English vocab, same categories as the Spanish hard set plus
+# some plain concrete words.
+ENGLISH_VOCAB_MIXED = [
+    ("perro", "dog", "concrete"), ("martillo", "hammer", "concrete"), ("ventana", "window", "concrete"),
+    ("paraguas", "umbrella", "concrete"), ("llave", "key", "concrete"), ("cocina", "kitchen", "concrete"),
+    ("puente", "bridge", "concrete"), ("bufanda", "scarf", "concrete"),
+    ("cansado", "tired", "near-synonyms"), ("agotado", "exhausted", "near-synonyms"),
+    ("pequeño", "small", "near-synonyms"), ("diminuto", "tiny", "near-synonyms"),
+    ("rápido", "quick", "near-synonyms"), ("veloz", "fast", "near-synonyms"),
+    ("banco", "bank", "several meanings"), ("carta", "letter", "several meanings"),
+    ("partido", "match", "several meanings"), ("primavera", "spring", "several meanings"),
+    ("murciélago", "bat", "several meanings"),
+    ("durante", "during", "preposition"), ("sin", "without", "preposition"),
+    ("hasta", "until", "preposition"), ("entre", "among", "preposition"),
+    ("aunque", "although", "connector (control)"),
+    ("por cierto", "by the way", "phrase"), ("estar harto", "to be fed up", "phrase"),
+    ("lo antes posible", "as soon as possible", "phrase"), ("por otro lado", "on the other hand", "phrase"),
+    ("raw", "médico (hombre) -> doctor", "messy line"),
+    ("raw", "trabajo / empleo = job", "messy line"),
+]
+HARD_SETS = {("Spanish", "vocab"): SPANISH_VOCAB_HARD, ("English", "vocab"): ENGLISH_VOCAB_MIXED}
+WORD_SETS[("English", "verb")] = ENGLISH_VERBS
 
 def _git(*args):
     try:
@@ -148,7 +185,9 @@ def build_html():
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=["verb", "vocab"], default="verb")
-    parser.add_argument("--language", default="Spanish", help="target language (only Spanish has a word set so far)")
+    parser.add_argument("--language", default="Spanish", help="target language (Spanish and English have word sets)")
+    parser.add_argument("--source", default=None,
+                        help="language the learner already knows (default English, or Spanish when learning English)")
     parser.add_argument("--tenses", default="present",
                         help='comma-separated tense values (see core/tenses.py), or "all"')
     parser.add_argument("--level", default="B1", help="CEFR level A1-C2")
@@ -170,6 +209,7 @@ def main():
         print(f"Rebuilt {out} from {n} run(s).")
         return
 
+    args.source = args.source or ("Spanish" if args.language == "English" else "English")
     sets = HARD_SETS if args.wordset == "hard" else WORD_SETS
     words = sets.get((args.language, args.mode))
     if words is None:
@@ -252,7 +292,7 @@ def main():
     def work(index):
         chunk = chunks[index]
         batch = qg.generate_question_batch(
-            chunk, "English", args.language, len(chunk), args.level, requested, False, None, args.mode
+            chunk, args.source, args.language, len(chunk), args.level, requested, False, None, args.mode
         )
         print(f"  batch {index + 1}/{len(chunks)} done", flush=True)
         return list(batch)
@@ -293,6 +333,7 @@ def main():
         "created": now.isoformat(timespec="seconds"),
         "mode": args.mode,
         "language": args.language,
+        "source_language": args.source,
         "level": args.level,
         "wordset": args.wordset,
         "requested_tenses": requested,
