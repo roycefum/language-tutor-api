@@ -13,6 +13,15 @@ from core.tenses import get_tense_labels, TENSES_BY_LANGUAGE
 load_dotenv()
 client = genai.Client()
 
+# Verb-conjugation questions need a model that fits the assigned verb into a
+# natural sentence — the cheaper flash-lite model wrote about 1 in 17 of
+# them badly (e.g. "mi abuelo era cuentos" for ser), while this one had none
+# in 200 reviewed questions across four tenses (see tools/review_questions.py).
+# Low thinking keeps the cost close to flash-lite: the default thinking level
+# billed roughly 1,400 extra output tokens per batch of five.
+VERB_QUESTION_MODEL = "gemini-3.8-flash"
+DEFAULT_QUESTION_MODEL = "gemini-3.5-flash-lite"
+
 # Gemini's structured JSON output occasionally corrupts an accented
 # character into a literal "#XXXX" sequence instead of the real character
 # (e.g. "después" -> "Despu#00e9s", "jardín" -> "jard#00edn") — looks like a
@@ -248,80 +257,42 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 1. Find the bare infinitive to conjugate: if target_term begins with "to ", strip that "to " to get
                    it (e.g. "to walk" → "walk"); otherwise target_term is already the bare infinitive (e.g.
                    "caminar", a Spanish/French infinitive needs no stripping).
-                2. Pick a natural subject (a pronoun, a name, or a noun) and a tense/mood appropriate to the
-                   complexity level below, then conjugate the infinitive for that subject and tense in
-                   {target_language} (e.g. "caminar" + "ella" + preterite → "caminó").
+                2. Pick a natural subject (a pronoun, a name, or a noun) and conjugate the infinitive for that
+                   subject in {target_language}, in the tense required in step 5 (e.g. "caminar" + "ella" +
+                   preterite → "caminó").
                 3. Make that specific conjugated form — not the infinitive — both the blank and the correct_answer
-                   for this question. Never use the bare infinitive as the answer; that tests recall, not
-                   conjugation, which is the entire point of a verb quiz.
-                4. After the sentence, append the bare infinitive in parentheses, e.g. "Ayer, mi hermano ___ cinco
+                   for this question, marking the blank with "_____". Never use the bare infinitive as the answer;
+                   that tests recall, not conjugation, which is the entire point of a verb quiz.
+                4. After the sentence, append the bare infinitive in parentheses, e.g. "Mi hermano ___ cinco
                    millas. (caminar)". This parenthetical is required on every single question in this batch, with
-                   no exceptions — since the infinitive is given directly, the sentence doesn't need any other clue
-                   about which verb it is. It DOES still need something that settles the TENSE — a subject alone
-                   ("Ellos ___ ayuda al profesor.") only says WHO, never WHEN, so present, preterite, and imperfect
-                   could all fit equally well and the question becomes unscoreable. Every single question needs an
-                   explicit time marker ("ayer"/"todos los días"/"el año que viene") or an equally unambiguous
-                   clue elsewhere in the sentence (e.g. "mientras estudiaba" already implies imperfect) — never
-                   just a bare subject and blank with nothing else pinning down when it happens. And the marker
-                   must point to ONLY the tense you picked, not double as a natural fit for a different tense too.
-                   Some time words are genuinely ambiguous this way: "mañana" ("tomorrow") is used naturally with BOTH the
-                   future ("Mañana saldremos temprano") and the present, for a planned near-future action ("Mañana
-                   salimos temprano") — a learner answering with either tense would be correct, which makes the
-                   question unscoreable. Before finalizing, check whether a different tense could also sound
-                   natural with the same sentence and marker; if so, either pick a marker that rules that out or
-                   add unambiguous context elsewhere in the sentence. Rough guide to which cues belong to which
-                   tense (use the equivalents in {target_language}): PRESENT — "todos los días", "normalmente",
-                   "ahora"; PRETERITE (one completed event) — "ayer", "anoche", "la semana pasada", "hace dos
-                   días"; IMPERFECT (habitual or ongoing past) — "de pequeño", "cuando era niña", "todos los
-                   veranos", "mientras", "siempre" in a past setting; FUTURE — "el año que viene", "dentro de dos
-                   semanas"; PRESENT PERFECT — "hoy", "esta semana", "ya", "todavía no". Note "ayer" alone can fit
-                   both preterite and imperfect, so it isn't enough on its own for an imperfect question. This
-                   matters most for verbs whose conjugated
-                   form is itself identical across two tenses for a given subject (e.g. -ir verbs' nosotros form is
-                   spelled the same in the present and the preterite, like "salimos") — for those, the sentence's
-                   own context has to be the only thing settling which tense is intended, since the word itself
-                   can't. Subjunctive is a special case here: it isn't a time at all, so a time marker doesn't
-                   apply to it. Its disambiguating clue is a grammatical trigger phrase that requires the
-                   subjunctive — doubt, wish, necessity, or emotion ("espero que", "es importante que", "ojalá
-                   que", "no creo que", "quiero que") — built into the sentence right before the subject/blank, so
-                   the mood itself is forced by the sentence's structure rather than guessed from timing.
-                5. Vary the subject and tense across the different verb questions in this batch rather than
-                   defaulting to the same person/tense every time — this is what makes a requiz of the same verb
-                   list actually test different conjugations over time. {tense_instruction}
+                   no exceptions. Do not use source_term anywhere in the question text.
+                5. {tense_instruction}
+                   The learner is told which tense the quiz uses, so the sentence does NOT need a time expression
+                   or any other clue to signal it. Write a natural sentence the way a native speaker would: a time
+                   expression is optional, and when you use one it can go anywhere in the sentence, including the
+                   end. Do not open every question with the same kind of phrase, and vary the subject/person and the
+                   sentence structure across the batch. If the tense or mood is only used after a grammatical
+                   trigger (as a subjunctive is), build that trigger naturally into the sentence.
                 6. Report which tense/mood the correct_answer you wrote is ACTUALLY in, in the "tense" field, as
                    the exact value string from this list: {json.dumps(all_tense_values)} — not the display label.
-                   Report what the conjugated form really is, even if that isn't one of the tenses requested
-                   above: an honest report matters more than matching the request, because a mismatch gets the
-                   question regenerated, while a false report tells the learner the wrong tense. Check your work:
-                   the required tense was chosen for you, so the answer must genuinely be in it, and the time
-                   marker or clue you picked must belong to THAT tense, not to a different one (a marker like
-                   "anoche" or "ayer" signals a single completed event — the preterite — so it does not belong in
-                   an imperfect question; imperfect wants habitual or ongoing past cues like "de pequeño",
-                   "cuando era niña", "todos los veranos", "mientras"). This field must be set on every question.
+                   Report what the conjugated form really is, even if that isn't the tense required: an honest
+                   report matters more than matching the request, because a mismatch gets the question
+                   regenerated, while a false report tells the learner the wrong tense. This field must be set on
+                   every question.
 
                 {cefr_guidance}
-                This complexity guidance applies to the sentence surrounding the blank and the choice of
-                subject/tense, not to which verb is being tested — that's fixed by the pair.
+                This complexity guidance applies to the sentence surrounding the blank, not to which verb is
+                being tested — that's fixed by the pair.
 
-                Modal/semi-auxiliary verbs (e.g. devoir, pouvoir, vouloir, savoir, and their equivalents in other
-                languages) are typically followed by an infinitive complement to form a natural sentence (e.g. "j'ai
-                dû finir mes dossiers" — "finir" is the complement, not the tested word). When target_term is such a
-                verb: the blank and correct_answer must be ONLY the conjugated form of target_term itself. Any
-                infinitive complement the sentence needs must be a DIFFERENT verb, written out normally, NOT left as
-                a second blank and NOT filled with another form of target_term. Never let any form of target_term
-                (conjugated, participle, or infinitive) appear anywhere in the sentence outside the one blank it
-                belongs in — a sentence like "j'ai dû ___ de l'argent (devoir)" where the blank is also meant to be
-                "dû" is wrong twice over: it repeats the already-visible "j'ai dû" and leaves no real infinitive
-                complement.
+                Modal/semi-auxiliary verbs (devoir, pouvoir, vouloir, and their equivalents): the blank and
+                correct_answer are ONLY the conjugated form of target_term. Any infinitive complement the
+                sentence needs must be a DIFFERENT verb, and no form of target_term may appear anywhere else in
+                the sentence.
 
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
 
                 {focus_instruction}
-
-                Now write a similar question for target term, following the conjugation steps above exactly. Use
-                "_____" to mark where the blank goes — the blank and correct_answer are the specific conjugated form,
-                never the bare infinitive. Do not use source_term in the question text.
             """
     else:
         prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
@@ -390,13 +361,21 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     
 
 
+    if list_type == "verb" and not flip:
+        question_model = VERB_QUESTION_MODEL
+        thinking_config = types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+    else:
+        question_model = DEFAULT_QUESTION_MODEL
+        thinking_config = None
+
     try: 
         response = client.models.generate_content(
-        model = "gemini-3.5-flash-lite",
+        model = question_model,
         contents = prompt,
         config = types.GenerateContentConfig(
             response_mime_type= "application/json",
-            response_schema= QuestionBatch
+            response_schema= QuestionBatch,
+            thinking_config = thinking_config
 
         )
     )

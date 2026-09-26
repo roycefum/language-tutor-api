@@ -36,6 +36,8 @@ from concurrent.futures import ThreadPoolExecutor
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from google.genai import types  # noqa: E402
+
 from core import question_generator as qg  # noqa: E402
 from core.tenses import TENSES_BY_LANGUAGE  # noqa: E402
 
@@ -124,6 +126,8 @@ def main():
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--label", default="run", help="short note on what this run tests, e.g. baseline / short-prompt")
     parser.add_argument("--model", default=None, help="force a specific Gemini model for every call")
+    parser.add_argument("--thinking", default=None, choices=["minimal", "low", "medium", "high"],
+                        help="force a thinking level for every call (models that support it)")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--build-html-only", action="store_true")
     args = parser.parse_args()
@@ -146,14 +150,29 @@ def main():
         if unknown or not requested:
             sys.exit(f"Unknown/empty tenses {unknown or requested}. Valid for {args.language}: {valid}")
 
-    if args.model:
-        real_generate = qg.client.models.generate_content
+    # Every call goes through this wrapper: it applies --model / --thinking
+    # when given, and always adds up the token counts, so a run reports what
+    # it actually used (thinking tokens are billed as output).
+    real_generate = qg.client.models.generate_content
+    tokens = {"input": 0, "output": 0, "thinking": 0, "calls": 0}
+    token_lock = threading.Lock()
 
-        def forced_model(**kwargs):
+    def wrapped_generate(**kwargs):
+        if args.model:
             kwargs["model"] = args.model
-            return real_generate(**kwargs)
+        if args.thinking and kwargs.get("config") is not None:
+            kwargs["config"].thinking_config = types.ThinkingConfig(thinking_level=args.thinking.upper())
+        response = real_generate(**kwargs)
+        usage = getattr(response, "usage_metadata", None)
+        if usage:
+            with token_lock:
+                tokens["calls"] += 1
+                tokens["input"] += usage.prompt_token_count or 0
+                tokens["output"] += usage.candidates_token_count or 0
+                tokens["thinking"] += usage.thoughts_token_count or 0
+        return response
 
-        qg.client.models.generate_content = forced_model
+    qg.client.models.generate_content = wrapped_generate
 
     # The generator regenerates a flawed question by calling itself again
     # (passing _retries_left); counting those shows how often its own safety
@@ -222,7 +241,9 @@ def main():
         "language": args.language,
         "level": args.level,
         "requested_tenses": requested,
-        "model": args.model or "default (as configured in code)",
+        "model": (args.model or "default (as configured in code)")
+        + (f", thinking {args.thinking}" if args.thinking else ""),
+        "tokens": tokens,
         "git_commit": _git("rev-parse", "--short", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain", "--", "core")),
         "code_hash": hashlib.sha1((ROOT / "core" / "question_generator.py").read_bytes()).hexdigest()[:8],
@@ -238,6 +259,8 @@ def main():
           f"{retry_calls} regenerations by the generator's own checks, {len(errors)} failed batch(es).")
     for message in errors:
         print("  ERROR", message)
+    print(f"Tokens: {tokens['input']} in, {tokens['output']} out, {tokens['thinking']} thinking, "
+          f"over {tokens['calls']} calls")
     print(f"Review page: {out} ({count} run(s) inside)")
 
 
