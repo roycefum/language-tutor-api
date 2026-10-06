@@ -1,6 +1,7 @@
 from google.genai import types
 
 from core.exceptions import GeminiAPIError
+from core.grammar_lists import grammar_pairs, is_grammar_category
 from core.question_generator import client
 from core.sample_lists import SAMPLE_LIST_CATEGORIES
 from data.models import WordListTranslation
@@ -48,7 +49,18 @@ def generate_sample_pairs(category_key: str, source_language: str, target_langua
     that actually need it — if either language is English, that side IS
     the master data, so at most 2 Gemini calls happen here (1 if one side
     is English, 2 if neither is — e.g. a Spanish -> French sample list).
+
+    Grammar categories (see core/grammar_lists.py) are not translated at all:
+    they come straight from a curated per-language table, so no Gemini call
+    happens, and source_language only matters to the caller. Raises ValueError
+    if that category has no table for the target language.
     """
+    if is_grammar_category(category_key):
+        pairs = grammar_pairs(category_key, target_language)
+        if pairs is None:
+            raise ValueError(f"No {category_key} list for {target_language}")
+        return pairs
+
     master_words = SAMPLE_LIST_CATEGORIES[category_key]
 
     source_words = (

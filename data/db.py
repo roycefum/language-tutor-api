@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
 from core.sample_list_generator import generate_sample_pairs
-from core.sample_lists import SAMPLE_CATEGORY_META
+from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES
 from data.models import VocabListMeta
 
 load_dotenv()
@@ -312,13 +312,14 @@ def generate_and_save_sample_list(client, user_id, category_key, source_language
 
 def generate_and_save_sample_lists(client, user_id, source_language, target_language):
     """
-    Generates and saves all 4 sample-list categories for a language pair —
-    called once, the first time a user sets their learning pair in
-    Settings. Best-effort per category: if one category's generation
+    Generates and saves the starter sample-list categories (the original 4 —
+    see STARTER_CATEGORIES) for a language pair — called once, the first time
+    a user sets their learning pair in Settings. Other categories are opt-in
+    from My Lists. Best-effort per category: if one category's generation
     fails, the others still get saved rather than the whole batch failing
     over one Gemini hiccup.
     """
-    for category_key in SAMPLE_CATEGORY_META:
+    for category_key in STARTER_CATEGORIES:
         try:
             generate_and_save_sample_list(client, user_id, category_key, source_language, target_language)
         except Exception:

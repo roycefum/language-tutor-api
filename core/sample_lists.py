@@ -236,4 +236,15 @@ SAMPLE_CATEGORY_META = {
     "common_verbs": ("Common Verbs", "verb"),
     "irregular_verbs": ("Irregular Verbs", "verb"),
     "food": ("Food", "vocab"),
+    # Curated grammar-word lists (see core/grammar_lists.py) — "grammar" is a
+    # list_type of its own, so quizzes on them get context-rich questions.
+    "subject_pronouns": ("Subject Pronouns", "grammar"),
+    "conjunctions": ("Conjunctions", "grammar"),
+    "prepositions": ("Prepositions", "grammar"),
 }
+
+# The lists a brand-new user gets automatically the first time they pick a
+# learning pair. Every other category is opt-in from My Lists, so adding
+# categories never makes first-time setup (which blocks Settings while it
+# runs) any slower or fills a new user's library unasked.
+STARTER_CATEGORIES = ("common_words", "common_verbs", "irregular_verbs", "food")

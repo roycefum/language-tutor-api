@@ -6,6 +6,7 @@ from core.question_generator import generate_question_batch, analyze_last_quiz, 
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
+from core.grammar_lists import GRAMMAR_CATEGORIES, is_grammar_category
 from core.sample_lists import SAMPLE_CATEGORY_META
 from core.exceptions import GeminiAPIError, AuthError
 from data.models import VocabListMeta
@@ -273,6 +274,10 @@ def route_generate_sample_list(
 ):
     if request.category not in SAMPLE_CATEGORY_META:
         raise HTTPException(status_code=400, detail="Unknown sample list category")
+    if is_grammar_category(request.category) and request.target_language not in GRAMMAR_CATEGORIES[request.category]:
+        raise HTTPException(
+            status_code=400, detail=f"No {request.category} list is available for {request.target_language}"
+        )
     list_id = generate_and_save_sample_list(
         client, current_user_id, request.category, request.source_language, request.target_language
     )

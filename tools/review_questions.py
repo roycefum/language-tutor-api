@@ -39,6 +39,7 @@ sys.path.insert(0, str(ROOT))
 from google.genai import types  # noqa: E402
 
 from core import question_generator as qg  # noqa: E402
+from core.grammar_lists import GRAMMAR_CATEGORIES, grammar_pairs  # noqa: E402
 from core.tenses import TENSES_BY_LANGUAGE  # noqa: E402
 
 REPORTS = ROOT / "tools" / "reports"
@@ -158,6 +159,8 @@ def _flags_for(question, pair, mode, requested_tenses, language, seen_questions)
     if text.strip().lower() in seen_questions:
         flags.append("duplicate_question")
     seen_questions.add(text.strip().lower())
+    if mode == "grammar" and qg._grammar_missing_context(question):
+        flags.append("no_context_before_blank")
     if mode == "verb":
         if qg._verb_answer_is_bare_infinitive(question, pair):
             flags.append("answer_is_infinitive")
@@ -184,7 +187,9 @@ def build_html():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--mode", choices=["verb", "vocab"], default="verb")
+    parser.add_argument("--mode", choices=["verb", "vocab", "grammar"], default="verb")
+    parser.add_argument("--category", default=None,
+                        help="for --mode grammar: a key from core/grammar_lists.py (e.g. subject_pronouns)")
     parser.add_argument("--language", default="Spanish", help="target language (Spanish and English have word sets)")
     parser.add_argument("--source", default=None,
                         help="language the learner already knows (default English, or Spanish when learning English)")
@@ -210,12 +215,25 @@ def main():
         return
 
     args.source = args.source or ("Spanish" if args.language == "English" else "English")
-    sets = HARD_SETS if args.wordset == "hard" else WORD_SETS
-    words = sets.get((args.language, args.mode))
-    if words is None:
-        sys.exit(f"No {args.wordset} word set for {args.language} / {args.mode} yet.")
     categories = {}
-    if args.wordset == "hard":
+    if args.mode == "grammar":
+        # The same curated tables the app's sample lists are built from, so
+        # what gets reviewed is exactly what ships. One question per word.
+        if args.category not in GRAMMAR_CATEGORIES:
+            sys.exit(f"--category must be one of {list(GRAMMAR_CATEGORIES)} for --mode grammar")
+        rows = grammar_pairs(args.category, args.language)
+        if rows is None:
+            sys.exit(f"No {args.category} table for {args.language}.")
+        words = [(r["source word"], r["target word"]) for r in rows]
+        categories = {r["target word"]: args.category.replace("_", " ") for r in rows}
+        if args.count is None:
+            args.count = len(words)
+    else:
+        sets = HARD_SETS if args.wordset == "hard" else WORD_SETS
+        words = sets.get((args.language, args.mode))
+        if words is None:
+            sys.exit(f"No {args.wordset} word set for {args.language} / {args.mode} yet.")
+    if args.wordset == "hard" and args.mode != "grammar":
         # Raw lines go through the real parser, so a messy line is tested as
         # the app would actually receive it (including if it gets skipped).
         from core.helpers import parse_pasted_list
@@ -336,6 +354,7 @@ def main():
         "source_language": args.source,
         "level": args.level,
         "wordset": args.wordset,
+        "category": args.category,
         "requested_tenses": requested,
         "model": (args.model or "default (as configured in code)")
         + (f", thinking {args.thinking}" if args.thinking else ""),

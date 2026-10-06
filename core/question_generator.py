@@ -101,6 +101,28 @@ def _verb_parenthetical_missing(question):
 def _verb_tense_mismatch(question, verb_tenses):
     return bool(verb_tenses) and bool(question.tense) and question.tense not in verb_tenses
 
+# A grammar word (pronoun, preposition, conjunction, ...) only has one correct
+# form because of what surrounds the blank, so the question needs context —
+# usually an earlier clause or sentence naming the referent or the relationship
+# being expressed. This only checks that SOME context exists, and only by
+# counting words and sentence marks, so it knows nothing about any language:
+# enough words before the blank, or a second sentence after an early blank
+# (e.g. a short question followed by its answer). A blank at the very start of
+# a lone one-clause sentence fails.
+_BLANK_RE = re.compile(r"_{2,}")
+_MIN_WORDS_BEFORE_BLANK = 3
+
+
+def _grammar_missing_context(question):
+    text = question.question_text
+    blank = _BLANK_RE.search(text)
+    if blank is None:
+        return False  # no blank at all is a different failure; don't retry on it here
+    if len(re.findall(r"\w+", text[: blank.start()])) >= _MIN_WORDS_BEFORE_BLANK:
+        return False
+    return re.search(r"[.!?]\s+\S", text) is None
+
+
 def question_generator (source_term: str, target_term: str, source_language: str, target_language:str) -> Question:
 
     prompt = f""" {source_term} is the source term in the {source_language}. This is the language that the user already knows.
@@ -298,6 +320,55 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 
                 {focus_instruction}
             """
+    elif list_type == "grammar":
+        # Grammar words are tested by the grammar of the sentence, not by
+        # translation, so this is its own prompt rather than a section of the
+        # vocab one (whose rules are about one distinguishing detail for a noun).
+        # Written as principles per kind of word, not per language.
+        prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term".
+                The target term (the second term) is a grammatical function word or short phrase in {target_language} (a
+                pronoun, preposition, conjunction, article or similar) that the learner is practicing using correctly. The
+                source term is only a hint about which word or role is meant — a short description of its grammatical role,
+                or a translation. Never write the source term, or any part of it, into a question.
+
+                Write a batch of {batch_size} fill-in-the-blank questions, one per pair, in the same order. For each:
+
+                1. Give every question two parts: a first part that sets up the context, then a second part with the blank —
+                   two short sentences, or one sentence with an earlier clause. Never put the blank in a lone one-clause
+                   sentence with nothing before it.
+                2. The context must make the target term the ONLY grammatically correct word for the blank:
+                   - pronoun or possessive: the first part names the person or thing it refers to, with its number and gender
+                   - conjunction or linking word: the two parts have exactly the relationship this word expresses (cause,
+                     contrast, condition, time, ...)
+                   - preposition: use a verb, noun or adjective that requires this preposition, or a clear relationship of
+                     place, time or direction
+                   - article, demonstrative or other determiner: include a noun whose gender and number, and whether it was
+                     already mentioned or is near or far, require this exact form
+                   - question word: write a short exchange where the answer shows what was asked
+                   - negation or indefinite word: set it against a positive statement
+                3. Before finalizing, name the two or three words of the same kind that are CLOSEST in meaning or use to
+                   the target term (for a preposition, others covering a similar relationship of place, time, direction or
+                   cause; for a conjunction, others joining clauses in a similar way), and test each one in the blank. Every
+                   one of them must be wrong, or clearly change the meaning, in this sentence. If any still fits, rewrite
+                   until none does. Make the exact relationship unmistakable through the nouns and the situation you choose
+                   (for example contact versus no contact, inside versus nearby, movement versus rest, a point in time versus
+                   a span, a limit versus a start), and avoid vague scenes where several words would sound natural.
+                4. If the language normally leaves this kind of word out (for example subject pronouns in a language that
+                   drops them), build a contrast so that including it is natural.
+
+                {cefr_guidance}
+                This level guidance applies to the vocabulary and grammar of the sentences, with one exception: this kind of
+                question needs two parts, so at the lowest levels use two short simple sentences rather than a subordinate
+                clause.
+
+                CRITICAL: every question's sentences AND its answer must be entirely in {target_language}, never in
+                {source_language}. Use "_____" to mark the blank. The blank and correct_answer are exactly the target term as
+                given.
+
+                {focus_instruction}
+
+                Leave the "tense" field empty/null for every question — it only applies to a Verb list.
+            """
     else:
         prompt = f""" {prompt_pairs} is a list of dictionaries and each dictionary is in the form "source term : target term" The source term (the first term) is in the
                 {source_language}. This is the language that the user already knows. The target term (the second term) is in the {target_language}. This is the
@@ -406,6 +477,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
         for i, question in enumerate(questions):
             pair = pairs[i]
             needs_retry = _answer_duplicated_in_sentence(question) or (
+                list_type == "grammar" and _grammar_missing_context(question)
+            ) or (
                 list_type == "verb"
                 and (
                     _verb_answer_is_bare_infinitive(question, pair)
