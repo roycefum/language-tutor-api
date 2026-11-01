@@ -7,6 +7,7 @@ from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
 from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES
+from core.sample_list_generator import generate_sample_pairs
 from core.exceptions import GeminiAPIError, AuthError
 from data.models import VocabListMeta
 from api.schemas import (
@@ -283,6 +284,21 @@ def route_generate_sample_list(
         # The tables don't cover this category / language pair.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"list_id": list_id}
+
+
+@app.get("/essentials/{category}")
+def route_get_essentials_list(category: str, source_language: str, target_language: str):
+    # No login: lets someone without an account quiz an Essentials list. It
+    # only reads the static tables (nothing is saved or generated), so it is
+    # free to serve; the app holds the pairs in memory for the quiz.
+    if category not in SAMPLE_CATEGORY_META:
+        raise HTTPException(status_code=400, detail="Unknown sample list category")
+    name, list_type = SAMPLE_CATEGORY_META[category]
+    try:
+        pairs = generate_sample_pairs(category, source_language, target_language)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"name": name, "list_type": list_type, "pairs": pairs}
 
 
 @app.put("/lists/{list_id}")

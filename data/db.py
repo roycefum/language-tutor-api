@@ -287,16 +287,16 @@ def upsert_user_profile(client, user_id, source_language, target_language):
 
 def generate_and_save_sample_list(client, user_id, category_key, source_language, target_language):
     """
-    Generates (via Gemini — see generate_sample_pairs) and saves ONE
-    sample-list category for a language pair. Shared by the first-time
-    bulk generation (all 4 categories, triggered from Settings) and the
-    on-demand single-category catalog in My Lists.
+    Builds (from the static tables — see generate_sample_pairs) and saves ONE
+    sample-list category for a language pair, or returns the user's existing
+    copy untouched. Shared by the first-time bulk generation and the
+    on-demand Essentials Quiz button.
 
     The plain category label (e.g. "Common Verbs") is the name — no
     language-pair suffix needed, since save_list()/find_list() already
     disambiguate by name AND language pair together, so the same label can
     be reused across every language pair without colliding. Returns the
-    new list's id.
+    list's id.
     """
     label, list_type = SAMPLE_CATEGORY_META[category_key]
     pairs = generate_sample_pairs(category_key, source_language, target_language)
@@ -307,6 +307,12 @@ def generate_and_save_sample_list(client, user_id, category_key, source_language
         target_language=target_language,
         list_type=list_type,
     )
+    # Asking again for a list the user already has returns it untouched —
+    # save_list() would wipe and re-insert its pairs, orphaning the quiz
+    # history recorded against the old pair ids.
+    existing = find_list(client, user_id, meta)
+    if existing is not None:
+        return existing["id"]
     return save_list(client, user_id, meta, pairs)
 
 
