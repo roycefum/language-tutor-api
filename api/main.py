@@ -6,8 +6,7 @@ from core.question_generator import generate_question_batch, analyze_last_quiz, 
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
-from core.grammar_lists import GRAMMAR_CATEGORIES, is_grammar_category
-from core.sample_lists import SAMPLE_CATEGORY_META
+from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES
 from core.exceptions import GeminiAPIError, AuthError
 from data.models import VocabListMeta
 from api.schemas import (
@@ -252,18 +251,20 @@ def route_update_profile(
 ):
     # Null learning_target_language beforehand means this is the user's
     # first time ever setting a learning pair — that's the signal (not a
-    # separate onboarding flag) for whether to also generate starter
-    # sample lists. Changing an already-set pair later is just a
-    # preference update, not a reason to regenerate/duplicate lists.
+    # separate onboarding flag) for whether to also generate the starter
+    # lists, if any are configured (see STARTER_CATEGORIES; currently none,
+    # since lists are opt-in from Essentials). Changing an already-set pair
+    # later is just a preference update, not a reason to regenerate lists.
     existing = get_user_profile(client, current_user_id)
     is_first_time = existing is None or existing.get("learning_target_language") is None
 
     upsert_user_profile(client, current_user_id, request.source_language, request.target_language)
 
-    if is_first_time:
+    generated = is_first_time and bool(STARTER_CATEGORIES)
+    if generated:
         generate_and_save_sample_lists(client, current_user_id, request.source_language, request.target_language)
 
-    return {"status": "updated", "generated_sample_lists": is_first_time}
+    return {"status": "updated", "generated_sample_lists": generated}
 
 
 @app.post("/sample-lists")
@@ -274,13 +275,13 @@ def route_generate_sample_list(
 ):
     if request.category not in SAMPLE_CATEGORY_META:
         raise HTTPException(status_code=400, detail="Unknown sample list category")
-    if is_grammar_category(request.category) and request.target_language not in GRAMMAR_CATEGORIES[request.category]:
-        raise HTTPException(
-            status_code=400, detail=f"No {request.category} list is available for {request.target_language}"
+    try:
+        list_id = generate_and_save_sample_list(
+            client, current_user_id, request.category, request.source_language, request.target_language
         )
-    list_id = generate_and_save_sample_list(
-        client, current_user_id, request.category, request.source_language, request.target_language
-    )
+    except ValueError as exc:
+        # The tables don't cover this category / language pair.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"list_id": list_id}
 
 

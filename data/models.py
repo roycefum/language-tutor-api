@@ -49,10 +49,6 @@ class TranslationResult(BaseModel):
     pairs: List[VocabPair]
 
 
-class WordListTranslation(BaseModel):
-    # One translation per input word, same order — see
-    # translate_english_word_list() in core/sample_list_generator.py.
-    translated_words: List[str]
 
 
 class VocabListMeta(BaseModel):
