@@ -9,6 +9,7 @@ from data.models import Question,QuestionBatch,PatternAnalysis
 from core.exceptions import GeminiAPIError
 from core.cefr import get_cefr_guidance, DEFAULT_CEFR_LEVEL
 from core.tenses import get_tense_labels, TENSES_BY_LANGUAGE
+from core.varieties import get_variety_instruction
 
 load_dotenv()
 client = genai.Client()
@@ -214,6 +215,10 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     else:
         tense_instruction = ""
 
+    # Which regional variety the sentences are written in (empty if the
+    # language has none configured) — see core/varieties.py.
+    variety_instruction = get_variety_instruction(target_language)
+
     # Only for a "Target My Mistakes" quiz: steer the questions toward the
     # skill the learner's last quiz showed them struggling with. Not used in
     # flip mode (that's a separate, comprehension-only prompt).
@@ -262,6 +267,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 
                 Do not include source_term anywhere in the question_text itself — the sentence must be entirely in
                 {target_language}, with only the bracketed target_term as the word being tested.
+
+                {variety_instruction}
 
                 Leave the "tense" field empty/null for every question — it only applies to verb-conjugation
                 questions, not this comprehension mode.
@@ -318,6 +325,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
 
+                {variety_instruction}
+
                 {focus_instruction}
             """
     elif list_type == "grammar":
@@ -364,6 +373,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
                 CRITICAL: every question's sentences AND its answer must be entirely in {target_language}, never in
                 {source_language}. Use "_____" to mark the blank. The blank and correct_answer are exactly the target term as
                 given.
+
+                {variety_instruction}
 
                 {focus_instruction}
 
@@ -418,6 +429,8 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
 
                 CRITICAL: every single question's sentence AND its answer must be entirely in {target_language}.
                 Do not write any question in {source_language}. Double-check each question before finalizing.
+
+                {variety_instruction}
 
                 {focus_instruction}
 

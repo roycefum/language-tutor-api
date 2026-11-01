@@ -86,7 +86,7 @@ WORD_SETS = {("Spanish", "verb"): SPANISH_VERBS, ("Spanish", "vocab"): SPANISH_V
 SPANISH_VOCAB_HARD = [
     ("tired", "cansado", "near-synonyms"), ("exhausted", "agotado", "near-synonyms"),
     ("house", "casa", "near-synonyms"), ("home", "hogar", "near-synonyms"),
-    ("small", "pequeño", "near-synonyms"), ("little", "chico", "near-synonyms"),
+    ("small", "pequeño", "near-synonyms"), ("tiny", "diminuto", "near-synonyms"),
     ("fast", "rápido", "near-synonyms"), ("quick", "veloz", "near-synonyms"),
     ("bank", "banco", "several meanings"), ("letter", "carta", "several meanings"),
     ("match", "partido", "several meanings"), ("orange", "naranja", "several meanings"),
