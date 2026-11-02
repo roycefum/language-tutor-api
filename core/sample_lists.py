@@ -21,7 +21,12 @@ SAMPLE_CATEGORY_META = {
     # Curated grammar-word lists (see core/grammar_lists.py) — "grammar" is a
     # list_type of its own, so quizzes on them get context-rich questions.
     "subject_pronouns": ("Subject Pronouns", "grammar"),
+    "object_pronouns": ("Object Pronouns", "grammar"),
+    "reflexive_pronouns": ("Reflexive Pronouns", "grammar"),
     "possessives": ("Possessives", "grammar"),
+    "articles": ("Articles", "grammar"),
+    "demonstratives": ("Demonstratives", "grammar"),
+    "articles_demonstratives": ("Articles and Demonstratives", "grammar"),
     "question_words": ("Question Words", "grammar"),
     "relative_pronouns": ("Relative Pronouns", "grammar"),
     "negatives_indefinites": ("Negatives and Indefinites", "grammar"),

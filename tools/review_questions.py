@@ -221,7 +221,7 @@ def main():
         # what gets reviewed is exactly what ships. One question per word.
         if args.category not in GRAMMAR_CATEGORIES:
             sys.exit(f"--category must be one of {list(GRAMMAR_CATEGORIES)} for --mode grammar")
-        rows = grammar_pairs(args.category, args.language)
+        rows = grammar_pairs(args.category, args.source, args.language)
         if rows is None:
             sys.exit(f"No {args.category} table for {args.language}.")
         words = [(r["source word"], r["target word"]) for r in rows]

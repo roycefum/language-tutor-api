@@ -95,6 +95,11 @@ def remove_accents(text):
     return ''.join(char for char in normalized if not unicodedata.combining(char))
 
 
+def normalize_apostrophes(text):
+    """Maps curly apostrophes to the straight one so l'ami == l’ami when answers are compared."""
+    return text.replace("\u2018", "'").replace("\u2019", "'").replace("\u02bc", "'")
+
+
 def save_list_if_valid(client, user_id, meta: VocabListMeta, pairs):
     """
     Thin wrapper around data.db.save_list(). Kept as its own function so
