@@ -20,7 +20,7 @@ def generate_sample_pairs(category_key: str, source_language: str, target_langua
             raise ValueError(f"No {category_key} list for {source_language} -> {target_language}")
         return pairs
     if is_grammar_category(category_key):
-        pairs = grammar_pairs(category_key, target_language)
+        pairs = grammar_pairs(category_key, source_language, target_language)
         if pairs is None:
             raise ValueError(f"No {category_key} list for {target_language}")
         return pairs

@@ -6,7 +6,7 @@ from core.question_generator import generate_question_batch, analyze_last_quiz, 
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
-from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES
+from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES, essentials_for
 from core.sample_list_generator import generate_sample_pairs
 from core.exceptions import GeminiAPIError, AuthError
 from data.models import VocabListMeta
@@ -284,6 +284,14 @@ def route_generate_sample_list(
         # The tables don't cover this category / language pair.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"list_id": list_id}
+
+
+@app.get("/essentials")
+def route_get_essentials_catalog(target_language: str):
+    # No login: the Essentials screen for a target language. Each language has
+    # its own catalog, so the app draws its cards from this instead of a
+    # fixed list.
+    return {"categories": essentials_for(target_language)}
 
 
 @app.get("/essentials/{category}")
