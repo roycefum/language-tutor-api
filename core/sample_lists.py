@@ -20,6 +20,10 @@ SAMPLE_CATEGORY_META = {
     "subject_pronouns": ("Subject Pronouns", "grammar"),
     "conjunctions": ("Conjunctions", "grammar"),
     "prepositions": ("Prepositions", "grammar"),
+    "question_words": ("Question Words", "grammar"),
+    "possessives": ("Possessives", "grammar"),
+    "negatives_indefinites": ("Negatives and Indefinites", "grammar"),
+    "relative_pronouns": ("Relative Pronouns", "grammar"),
 }
 
 # Categories generated automatically the first time a user picks a learning
