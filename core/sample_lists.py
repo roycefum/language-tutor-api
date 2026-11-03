@@ -23,15 +23,40 @@ SAMPLE_CATEGORY_META = {
     "subject_pronouns": ("Subject Pronouns", "grammar"),
     "object_pronouns": ("Object Pronouns", "grammar"),
     "reflexive_pronouns": ("Reflexive Pronouns", "grammar"),
+    "stressed_pronouns": ("Stressed Pronouns", "grammar"),
     "possessives": ("Possessives", "grammar"),
     "articles": ("Articles", "grammar"),
     "demonstratives": ("Demonstratives", "grammar"),
     "articles_demonstratives": ("Articles and Demonstratives", "grammar"),
     "question_words": ("Question Words", "grammar"),
     "relative_pronouns": ("Relative Pronouns", "grammar"),
-    "negatives_indefinites": ("Negatives and Indefinites", "grammar"),
+    "negatives": ("Negatives", "grammar"),
+    "indefinites": ("Indefinites", "grammar"),
     "conjunctions": ("Conjunctions", "grammar"),
     "prepositions": ("Prepositions", "grammar"),
+}
+
+# How hard each category is, shown as a badge on the Essentials screen.
+# One level per category, the same for every language.
+CATEGORY_LEVEL = {
+    "common_words": "beginner",
+    "common_verbs": "beginner",
+    "food": "beginner",
+    "subject_pronouns": "beginner",
+    "articles": "beginner",
+    "demonstratives": "beginner",
+    "articles_demonstratives": "beginner",
+    "possessives": "beginner",
+    "question_words": "beginner",
+    "conjunctions": "beginner",
+    "stressed_pronouns": "beginner",
+    "irregular_verbs": "intermediate",
+    "object_pronouns": "intermediate",
+    "reflexive_pronouns": "intermediate",
+    "negatives": "beginner",
+    "indefinites": "intermediate",
+    "prepositions": "intermediate",
+    "relative_pronouns": "advanced",
 }
 
 # Categories generated automatically the first time a user picks a learning
@@ -57,5 +82,8 @@ def essentials_for(target_language):
             group = "grammar"
         else:
             continue
-        catalog.append({"key": key, "name": name, "list_type": list_type, "group": group})
+        catalog.append({
+            "key": key, "name": name, "list_type": list_type, "group": group,
+            "level": CATEGORY_LEVEL[key],
+        })
     return catalog

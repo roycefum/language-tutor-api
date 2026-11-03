@@ -1,4 +1,4 @@
-# Curated "everyday" sample lists — the four 50-word lists offered in the app's
+# Curated "everyday" sample lists — the four lists of about 50 words offered in the app's
 # Essentials screen (Common Words, Common Verbs, Irregular Verbs, Food) —
 # as static, hand-written tables. Nothing here is generated at request time:
 # adding one of these lists is instant, free, and identical for every user, and
@@ -14,6 +14,11 @@
 # and it is shown only when English is the SOURCE side ("to be (permanent)");
 # when English is the target the answer is just "to be". Verbs are infinitives
 # ("to speak" in English; the bare infinitive otherwise). No article on nouns.
+#
+# Common Verbs holds only verbs that are regular in all three languages (so
+# one table serves any pair): predictable spelling changes such as -ger or -car
+# are fine, but no stem-changing or irregular verb. The irregular ones live in
+# IRREGULAR_VERBS.
 #
 # Two concepts can share a word in another language (ser and estar are both
 # "être"); everyday_pairs keeps only the first, so a list never repeats a
@@ -79,54 +84,44 @@ COMMON_WORDS = [
 COMMON_VERBS = [
     ("to speak", "hablar", "parler"),
     ("to eat", "comer", "manger"),
-    ("to live", "vivir", "vivre"),
-    ("to have", "tener", "avoir"),
-    ("to do", "hacer", "faire"),
-    ("to go", "ir", "aller"),
-    ("to be|permanent", "ser", "être"),
-    ("to be|state or location", "estar", "être"),
-    ("to be able to", "poder", "pouvoir"),
-    ("to want", "querer", "vouloir"),
-    ("to say", "decir", "dire"),
-    ("to see", "ver", "voir"),
-    ("to give", "dar", "donner"),
-    ("to know|a fact", "saber", "savoir"),
-    ("to come", "venir", "venir"),
-    ("to leave|go out", "salir", "sortir"),
-    ("to put", "poner", "mettre"),
-    ("to think", "pensar", "penser"),
-    ("to find", "encontrar", "trouver"),
     ("to arrive", "llegar", "arriver"),
     ("to look for", "buscar", "chercher"),
-    ("to have to|must", "deber", "devoir"),
-    ("to follow", "seguir", "suivre"),
-    ("to feel", "sentir", "sentir"),
-    ("to return", "volver", "retourner"),
-    ("to take", "tomar", "prendre"),
-    ("to know|a person", "conocer", "connaître"),
     ("to carry", "llevar", "porter"),
     ("to leave|behind", "dejar", "laisser"),
     ("to call", "llamar", "appeler"),
-    ("to understand", "entender", "comprendre"),
-    ("to ask for", "pedir", "demander"),
-    ("to receive", "recibir", "recevoir"),
-    ("to show", "mostrar", "montrer"),
     ("to create", "crear", "créer"),
     ("to work", "trabajar", "travailler"),
     ("to study", "estudiar", "étudier"),
-    ("to write", "escribir", "écrire"),
-    ("to read", "leer", "lire"),
-    ("to play", "jugar", "jouer"),
-    ("to run", "correr", "courir"),
     ("to walk", "caminar", "marcher"),
-    ("to sleep", "dormir", "dormir"),
-    ("to wake up", "despertarse", "se réveiller"),
-    ("to begin", "empezar", "commencer"),
     ("to finish", "terminar", "finir"),
-    ("to open", "abrir", "ouvrir"),
-    ("to close", "cerrar", "fermer"),
-    ("to buy", "comprar", "acheter"),
     ("to sell", "vender", "vendre"),
+    ("to love", "amar", "aimer"),
+    ("to sing", "cantar", "chanter"),
+    ("to dance", "bailar", "danser"),
+    ("to watch", "mirar", "regarder"),
+    ("to listen", "escuchar", "écouter"),
+    ("to use", "utilizar", "utiliser"),
+    ("to visit", "visitar", "visiter"),
+    ("to cook", "cocinar", "cuisiner"),
+    ("to swim", "nadar", "nager"),
+    ("to travel", "viajar", "voyager"),
+    ("to forget", "olvidar", "oublier"),
+    ("to help", "ayudar", "aider"),
+    ("to wait", "esperar", "attendre"),
+    ("to answer", "responder", "répondre"),
+    ("to enter", "entrar", "entrer"),
+    ("to change", "cambiar", "changer"),
+    ("to explain", "explicar", "expliquer"),
+    ("to prepare", "preparar", "préparer"),
+    ("to wash", "lavar", "laver"),
+    ("to decide", "decidir", "décider"),
+    ("to teach", "enseñar", "enseigner"),
+    ("to ask|a question", "preguntar", "demander"),
+    ("to spend|time", "pasar", "passer"),
+    ("to cry", "llorar", "pleurer"),
+    ("to cut", "cortar", "couper"),
+    ("to share", "compartir", "partager"),
+    ("to fill", "llenar", "remplir"),
 ]
 
 IRREGULAR_VERBS = [

@@ -90,6 +90,12 @@ GLOSSARY = {
     "near the listener": {"Spanish": "cerca de quien escucha", "French": "près de celui qui écoute"},
     "far from both": {"Spanish": "lejos de ambos", "French": "loin des deux"},
     "far from the speaker": {"Spanish": "lejos de quien habla", "French": "loin de celui qui parle"},
+    "stressed pronoun": {"Spanish": "pronombre tónico", "French": "pronom disjoint"},
+    "prepositional pronoun": {"Spanish": "pronombre preposicional", "French": "pronom prépositionnel"},
+    "general or impersonal": {"Spanish": "general o impersonal", "French": "général ou impersonnel"},
+    "combined with con": {"Spanish": "unido a con", "French": "combiné avec con"},
+    "replaces the article": {"Spanish": "sustituye al artículo", "French": "remplace l'article"},
+    "before a noun": {"Spanish": "ante un nombre", "French": "devant un nom"},
 }
 
 
