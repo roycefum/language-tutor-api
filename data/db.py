@@ -5,7 +5,7 @@ from supabase import create_client, Client
 from datetime import datetime, timedelta, timezone
 
 from core.sample_list_generator import generate_sample_pairs
-from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES
+from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES, category_name
 from data.models import VocabListMeta
 
 load_dotenv()
@@ -298,7 +298,8 @@ def generate_and_save_sample_list(client, user_id, category_key, source_language
     be reused across every language pair without colliding. Returns the
     list's id.
     """
-    label, list_type = SAMPLE_CATEGORY_META[category_key]
+    list_type = SAMPLE_CATEGORY_META[category_key][1]
+    label = category_name(category_key, target_language)
     pairs = generate_sample_pairs(category_key, source_language, target_language)
     meta = VocabListMeta(
         name=label,

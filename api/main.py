@@ -6,7 +6,7 @@ from core.question_generator import generate_question_batch, analyze_last_quiz, 
 from core.extraction import extract_vocab_from_image
 from core.language_detector import detect_languages
 from core.translator import translate_word_list
-from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES, essentials_for
+from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES, category_name, essentials_for
 from core.sample_list_generator import generate_sample_pairs
 from core.exceptions import GeminiAPIError, AuthError
 from data.models import VocabListMeta
@@ -301,7 +301,8 @@ def route_get_essentials_list(category: str, source_language: str, target_langua
     # free to serve; the app holds the pairs in memory for the quiz.
     if category not in SAMPLE_CATEGORY_META:
         raise HTTPException(status_code=400, detail="Unknown sample list category")
-    name, list_type = SAMPLE_CATEGORY_META[category]
+    list_type = SAMPLE_CATEGORY_META[category][1]
+    name = category_name(category, target_language)
     try:
         pairs = generate_sample_pairs(category, source_language, target_language)
     except ValueError as exc:

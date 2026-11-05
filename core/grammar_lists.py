@@ -654,10 +654,6 @@ GRAMMAR_CATEGORIES = {
              {"English": "some or one", "French": "une, quelques-unes"}),
             ("en alguna parte", "indefinite adverbial phrase", (),
              {"English": "somewhere", "French": "quelque part"}),
-            ("siempre", "adverb", (),
-             {"English": "always", "French": "toujours"}),
-            ("también", "adverb", (),
-             {"English": "also or too, adds to an affirmative", "French": "aussi (s'ajoute à une affirmation)"}),
         ],
         "French": [
             ("quelqu'un", "indefinite pronoun", (),

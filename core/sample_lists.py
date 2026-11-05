@@ -36,6 +36,20 @@ SAMPLE_CATEGORY_META = {
     "prepositions": ("Prepositions", "grammar"),
 }
 
+# Where a language's own grammar uses a different name for a category, the
+# name for that target language. Stressed pronouns (French) are called
+# prepositional pronouns in Spanish grammar.
+TARGET_NAME_OVERRIDES = {
+    ("stressed_pronouns", "Spanish"): "Prepositional Pronouns",
+}
+
+
+def category_name(category_key, target_language):
+    """The English name a category is shown and saved under for a target language."""
+    override = TARGET_NAME_OVERRIDES.get((category_key, target_language))
+    return override or SAMPLE_CATEGORY_META[category_key][0]
+
+
 # How hard each category is, shown as a badge on the Essentials screen.
 # One level per category, the same for every language.
 CATEGORY_LEVEL = {
@@ -75,7 +89,7 @@ def essentials_for(target_language):
     languages are not translations of each other, so each has its own set).
     """
     catalog = []
-    for key, (name, list_type) in SAMPLE_CATEGORY_META.items():
+    for key, (_, list_type) in SAMPLE_CATEGORY_META.items():
         if is_everyday_category(key):
             group = "everyday"
         elif target_language in GRAMMAR_CATEGORIES.get(key, {}):
@@ -83,7 +97,7 @@ def essentials_for(target_language):
         else:
             continue
         catalog.append({
-            "key": key, "name": name, "list_type": list_type, "group": group,
+            "key": key, "name": category_name(key, target_language), "list_type": list_type, "group": group,
             "level": CATEGORY_LEVEL[key],
         })
     return catalog
