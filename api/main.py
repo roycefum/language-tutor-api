@@ -1,11 +1,8 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from core.question_generator import generate_question_batch, analyze_last_quiz, split_quiz_evidence
-from core.extraction import extract_vocab_from_image
-from core.language_detector import detect_languages
-from core.translator import translate_word_list
 from core.sample_lists import SAMPLE_CATEGORY_META, STARTER_CATEGORIES, category_name, essentials_for
 from core.sample_list_generator import generate_sample_pairs
 from core.exceptions import GeminiAPIError, AuthError
@@ -19,8 +16,6 @@ from api.schemas import (
     CreateQuizSessionRequest,
     UpdateQuizSessionRequest,
     CreateAttemptRequest,
-    DetectLanguageRequest,
-    TranslateWordListRequest,
     RenameListRequest,
     UpdateListPairsRequest,
     RequestPasswordResetRequest,
@@ -28,7 +23,7 @@ from api.schemas import (
     UpdateProfileRequest,
     GenerateSampleListRequest,
 )
-from core.helpers import save_list_if_valid, parse_pasted_list
+from core.helpers import save_list_if_valid
 from auth.supabase_auth import (
     sign_up,
     sign_in,
@@ -393,62 +388,6 @@ def route_get_quiz_history(
 ):
     history = get_quiz_history_for_list(client, list_id, current_user_id)
     return {"history": history}
-
-
-@app.post("/extract-vocab-from-image")
-async def route_extract_vocab_from_image(file: UploadFile = File(...)):
-    # No auth dependency here: anonymous users can build lists (including
-    # via photo extraction) without persistence, same as /generate-questions.
-    image_bytes = await file.read()
-    pairs = extract_vocab_from_image(image_bytes, file.content_type)
-    return {"pairs": [p.model_dump() for p in pairs]}
-
-
-@app.post("/parse-vocab-text")
-async def route_parse_vocab_text(raw_text: str = Form(None), file: UploadFile = File(None)):
-    # Covers both "paste text" and "upload file" input methods, since both
-    # end up as plain text fed to the same parser. Same anonymous-use
-    # precedent as /generate-questions and /extract-vocab-from-image.
-    if file is not None:
-        try:
-            text = (await file.read()).decode("utf-8")
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="File must be plain text")
-    elif raw_text is not None:
-        text = raw_text
-    else:
-        raise HTTPException(status_code=400, detail="Provide either raw_text or file")
-
-    pairs, skipped_lines = parse_pasted_list(text)
-    return {"pairs": pairs, "skipped_lines": skipped_lines}
-
-
-@app.post("/detect-language")
-def route_detect_language(request: DetectLanguageRequest):
-    # Anonymous-use, like /parse-vocab-text — this is a nice-to-have that
-    # pre-fills the language picker after parsing a file/paste/photo, not
-    # something that needs to be tied to an account.
-    if not request.pairs:
-        raise HTTPException(status_code=400, detail="No pairs provided")
-    result = detect_languages(request.pairs)
-    return {"source_language": result.source_language, "target_language": result.target_language}
-
-
-@app.post("/translate-word-list")
-def route_translate_word_list(request: TranslateWordListRequest):
-    # Anonymous-use, like /parse-vocab-text and /detect-language. Used when
-    # a parsed file/paste turns out to be a monolingual word list (lines
-    # that failed to split into a pair) — translates them into a language
-    # the user picks instead of leaving them stuck as unusable skipped lines.
-    if not request.words:
-        raise HTTPException(status_code=400, detail="No words provided")
-    result = translate_word_list(request.words, request.target_language)
-    return {
-        "source_language": result.source_language,
-        "pairs": [
-            {"source word": p.source_term, "target word": p.target_term} for p in result.pairs
-        ],
-    }
 
 
 # ============================================================

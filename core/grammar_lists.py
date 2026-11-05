@@ -302,7 +302,7 @@ GRAMMAR_CATEGORIES = {
              {"Spanish": "perteneciente a ellos (su)", "French": "appartenant à eux (leur, leurs)"}),
         ],
     },
-    "articles": {
+    "definite_articles": {
         "Spanish": [
             ("el", "article", ("definite", "masculine singular"),
              {"English": "the", "French": "le"}),
@@ -314,14 +314,6 @@ GRAMMAR_CATEGORIES = {
              {"English": "the", "French": "les"}),
             ("lo", "article", ("definite", "neuter"),
              {"English": "the (before an adjective, for an abstract idea: lo bueno)", "French": "le (devant un adjectif, pour une idée abstraite : lo bueno)"}),
-            ("un", "article", ("indefinite", "masculine singular"),
-             {"English": "a, an, one", "French": "un"}),
-            ("una", "article", ("indefinite", "feminine singular"),
-             {"English": "a, an, one", "French": "une"}),
-            ("unos", "article", ("indefinite", "masculine plural"),
-             {"English": "some", "French": "des"}),
-            ("unas", "article", ("indefinite", "feminine plural"),
-             {"English": "some", "French": "des"}),
         ],
         "French": [
             ("le", "article", ("definite", "masculine singular"),
@@ -332,6 +324,24 @@ GRAMMAR_CATEGORIES = {
              {"English": "the (replaces le or la)", "Spanish": "el, la (sustituye a le o la)"}),
             ("les", "article", ("definite", "plural"),
              {"English": "the", "Spanish": "los, las"}),
+            ("au", "article", ("definite", "contracted with a preposition", "masculine singular"),
+             {"English": "to the, at the (à + le)", "Spanish": "al (a + le)"}),
+            ("aux", "article", ("definite", "contracted with a preposition", "plural"),
+             {"English": "to the, at the (à + les)", "Spanish": "a los, a las (à + les)"}),
+        ],
+    },
+    "indefinite_articles": {
+        "Spanish": [
+            ("un", "article", ("indefinite", "masculine singular"),
+             {"English": "a, an, one", "French": "un"}),
+            ("una", "article", ("indefinite", "feminine singular"),
+             {"English": "a, an, one", "French": "une"}),
+            ("unos", "article", ("indefinite", "masculine plural"),
+             {"English": "some", "French": "des"}),
+            ("unas", "article", ("indefinite", "feminine plural"),
+             {"English": "some", "French": "des"}),
+        ],
+        "French": [
             ("un", "article", ("indefinite", "masculine singular"),
              {"English": "a, an, one", "Spanish": "un"}),
             ("une", "article", ("indefinite", "feminine singular"),
@@ -344,10 +354,16 @@ GRAMMAR_CATEGORIES = {
              {"English": "some, or of the", "Spanish": "algo de, o de la"}),
             ("de l'", "article", ("partitive", "before a vowel or silent h"),
              {"English": "some, or of the", "Spanish": "algo de, o del, de la"}),
-            ("au", "article", ("contracted with a preposition", "masculine singular"),
-             {"English": "to the, at the (à + le)", "Spanish": "al (a + le)"}),
-            ("aux", "article", ("contracted with a preposition", "plural"),
-             {"English": "to the, at the (à + les)", "Spanish": "a los, a las (à + les)"}),
+        ],
+    },
+    "articles": {
+        "English": [
+            ("a", "article", ("indefinite", "before a consonant sound"),
+             {"Spanish": "un, una", "French": "un, une"}),
+            ("an", "article", ("indefinite", "before a vowel sound"),
+             {"Spanish": "un, una", "French": "un, une"}),
+            ("the", "article", ("definite",),
+             {"Spanish": "el, la, los, las", "French": "le, la, les"}),
         ],
     },
     "demonstratives": {
@@ -409,15 +425,7 @@ GRAMMAR_CATEGORIES = {
             ("c'", "demonstrative pronoun", ("neuter", "before a vowel or silent h"),
              {"English": "it, this, that (as in c'est)", "Spanish": "esto, eso, ello (como en c'est)"}),
         ],
-    },
-    "articles_demonstratives": {
         "English": [
-            ("a", "article", ("indefinite", "before a consonant sound"),
-             {"Spanish": "un, una", "French": "un, une"}),
-            ("an", "article", ("indefinite", "before a vowel sound"),
-             {"Spanish": "un, una", "French": "un, une"}),
-            ("the", "article", ("definite",),
-             {"Spanish": "el, la, los, las", "French": "le, la, les"}),
             ("this", "demonstrative", ("singular", "near the speaker"),
              {"Spanish": "este, esta, esto", "French": "ce, cet, cette, ceci"}),
             ("that", "demonstrative", ("singular", "far from the speaker"),

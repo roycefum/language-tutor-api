@@ -22,32 +22,14 @@ class Question(BaseModel):
     # where tense doesn't apply, and for anything generated before this
     # field existed.
     tense: Optional[str] = None
+    # The pair's label ("subject pronoun, I, 1st person, singular"), shown above
+    # a grammar question so the learner knows which form is wanted. Stamped by
+    # generate_question_batch() from the pair, never written by Gemini; None
+    # for every other list type and for flip questions.
+    hint: Optional[str] = None
 
 class QuestionBatch(BaseModel):
     questions: List[Question]
-
-
-
-class VocabPair(BaseModel):
-    source_term: str
-    target_term: str
-
-
-class LanguageDetection(BaseModel):
-    source_language: str
-    target_language: str
-
-class ExtractedVocabList(BaseModel):
-    pairs: List[VocabPair]
-
-
-class TranslationResult(BaseModel):
-    # Detected from the words themselves, not asked of the caller — a
-    # monolingual list (e.g. from a textbook photo/paste with no
-    # translations) doesn't come with a declared source language.
-    source_language: str
-    pairs: List[VocabPair]
-
 
 
 

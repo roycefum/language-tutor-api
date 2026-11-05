@@ -97,18 +97,6 @@ class CreateAttemptRequest(BaseModel):
     used_tense_hint: bool = False
 
 
-class DetectLanguageRequest(BaseModel):
-    # Each dict is {"source word": ..., "target word": ...} — the same
-    # plain shape /parse-vocab-text returns and the frontend already uses,
-    # so no reshaping is needed on either side of this call.
-    pairs: list[dict[str, str]]
-
-
-class TranslateWordListRequest(BaseModel):
-    words: list[str]
-    target_language: str
-
-
 class RenameListRequest(BaseModel):
     name: str
 

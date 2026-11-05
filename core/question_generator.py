@@ -478,6 +478,7 @@ def generate_question_batch (pairs:list[dict], source_language: str, target_lang
     # would be both unreliable and unnecessary.
     for question, pair in zip(questions, pairs):
         question.vocab_pair_id = pair.get("id")
+        question.hint = pair["source word"] if list_type == "grammar" and not flip else None
 
     # Modal verbs (devoir, pouvoir, ...) occasionally trip the self-collision
     # bug the prompt above warns against; verb pairs occasionally get left
